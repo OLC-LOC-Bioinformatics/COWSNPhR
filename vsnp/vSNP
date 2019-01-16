@@ -86,7 +86,9 @@ def vsnp(**kwargs):
     Full vSNP pipeline
     """
     vcf_object = VCF(path=kwargs['path'],
+                     threads=kwargs['threads'],
                      debug=kwargs['debug'])
+    vcf_object.main()
 
 
 @group.command()
