@@ -42,14 +42,22 @@ class VCF(object):
                                                           threads=self.threads,
                                                           logfile=self.logfile)
         logging.info('Parsing MASH outputs to determine closest reference genomes')
-        self.mash_output_dict = Methods.call_mash_dist(strain_fastq_dict=self.strain_fastq_dict,
-                                                       strain_name_dict=self.strain_name_dict,
-                                                       fastq_sketch_dict=self.fastq_sketch_dict,
-                                                       ref_sketch_file=os.path.join(
+        self.mash_dist_dict = Methods.call_mash_dist(strain_fastq_dict=self.strain_fastq_dict,
+                                                     strain_name_dict=self.strain_name_dict,
+                                                     fastq_sketch_dict=self.fastq_sketch_dict,
+                                                     ref_sketch_file=os.path.join(
                                                            self.dependencypath, 'mash', 'vsnp_reference.msh'),
-                                                       threads=self.threads,
-                                                       logfile=self.logfile)
+                                                     threads=self.threads,
+                                                     logfile=self.logfile)
+        logging.info('Loading reference genome: species dictionary')
 
+        self.accession_species_dict = Methods.parse_mash_accession_species(mash_species_file=os.path.join(
+            self.dependencypath, 'mash', 'species_accessions.csv'))
+
+        logging.info('Determining closest reference genome and extracting corresponding species from MASH outputs')
+        self.strain_best_ref, self.strain_ref_matches, self.strain_species = \
+            Methods.mash_best_ref(mash_dist_dict=self.mash_dist_dict,
+                                  accession_species_dict=self.accession_species_dict)
 
     def __init__(self, path, threads, debug=False):
         """
@@ -85,5 +93,9 @@ class VCF(object):
         self.strain_name_dict = dict()
         self.strain_fastq_dict = dict()
         self.fastq_sketch_dict = dict()
-        self.mash_output_dict = dict()
+        self.mash_dist_dict = dict()
+        self.accession_species_dict = dict()
+        self.strain_best_ref = dict()
+        self.strain_ref_matches = dict()
+        self.strain_species = dict()
 
