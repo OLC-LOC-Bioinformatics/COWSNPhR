@@ -8,8 +8,11 @@ setup(
     version="0.0.1",
     packages=find_packages(),
     include_package_data=True,
-    scripts=[os.path.join('vsnp', 'vSNP.py')
-             ],
+    entry_points={
+        'console_scripts': [
+            'vSNP = vsnp.vSNP:main'
+        ],
+    },
     license='MIT',
     author='Adam Koziol',
     author_email='adam.koziol@canada.ca',
