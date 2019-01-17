@@ -109,7 +109,6 @@ class Methods(object):
                         threads=threads,
                         file_list=file_list,
                         output_file=fastq_sketch_no_ext)
-            print(mash_sketch_command)
             if not os.path.isfile(fastq_sketch):
                 out, err = run_subprocess(command=mash_sketch_command)
                 write_to_logfile(out=out,
@@ -142,3 +141,40 @@ class Methods(object):
                                  sampleerr=os.path.join(strain_folder, 'log.err'))
             strain_mash_outputs[strain_name] = out_tab
         return strain_mash_outputs
+
+    @staticmethod
+    def parse_mash_accession_species(mash_species_file):
+        """
+
+        :param mash_species_file:
+        :return:
+        """
+        accession_species_dict = dict()
+        with open(mash_species_file, 'r') as species_file:
+            for line in species_file:
+                accession, species = line.rstrip().split(',')
+                accession_species_dict[accession] = species
+        return accession_species_dict
+
+    @staticmethod
+    def mash_best_ref(mash_dist_dict, accession_species_dict):
+        """
+
+        :param mash_dist_dict:
+        :param accession_species_dict:
+        :return:
+        """
+        strain_best_ref = dict()
+        strain_ref_matches = dict()
+        strain_species = dict()
+        for strain_name, mash_dist_table in mash_dist_dict.items():
+            with open(mash_dist_table, 'r') as mash_dist:
+                best_ref, query_id, mash_distance, p_value, matching_hashes = mash_dist.readline().rstrip().split('\t')
+            # best_ref = best_ref.split('.')[0]
+            matching_hashes = int(matching_hashes.split('/')[0])
+            strain_best_ref[strain_name] = best_ref
+            strain_ref_matches[strain_name] = matching_hashes
+            strain_species[strain_name] = accession_species_dict[best_ref]
+        return strain_best_ref, strain_ref_matches, strain_species
+
+
