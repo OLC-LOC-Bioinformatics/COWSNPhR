@@ -8,7 +8,7 @@ __author__ = 'adamkoziol'
 
 testpath = os.path.abspath(os.path.dirname(__file__))
 filepath = os.path.join(testpath, 'files')
-
+dependencypath = os.path.join(os.path.dirname(testpath), 'dependencies')
 
 def test_invalid_path():
     with pytest.raises(AssertionError):
@@ -133,5 +133,43 @@ def test_strain_linker():
             assert os.path.islink(symlink)
 
 
-def test_mash():
-    Methods.call_mash(strain_fastq_dict=strain_fastq_dict)
+def test_mash_sketch():
+    global logfile, fastq_sketch_dict
+    logfile = os.path.join(filepath, 'log')
+    fastq_sketch_dict = Methods.call_mash_sketch(strain_fastq_dict=strain_fastq_dict,
+                                                 strain_name_dict=strain_name_dict,
+                                                 threads=4,
+                                                 logfile=logfile)
+    for strain, sketch_file in fastq_sketch_dict.items():
+        assert os.path.isfile(sketch_file)
+
+
+def test_mash_dist():
+    global mash_dist_dict
+    mash_dist_dict = Methods.call_mash_dist(strain_fastq_dict=strain_fastq_dict,
+                                            strain_name_dict=strain_name_dict,
+                                            fastq_sketch_dict=fastq_sketch_dict,
+                                            ref_sketch_file=os.path.join(
+                                                  testpath, 'dependencies', 'mash', 'vsnp_reference.msh'),
+                                            threads=4,
+                                            logfile=logfile)
+    for strain, tab_output in mash_dist_dict.items():
+        assert os.path.isfile(tab_output)
+
+
+def test_mash_accession_species():
+    global accession_species_dict
+    accession_species_dict = Methods.parse_mash_accession_species(mash_species_file=os.path.join(
+                                                  dependencypath, 'mash', 'species_accessions.csv'))
+    assert accession_species_dict['NC_002945v4.fasta'] == 'af'
+
+
+def test_mash_best_ref():
+    global strain_best_ref, strain_ref_matches, strain_species
+    strain_best_ref, strain_ref_matches, strain_species = \
+        Methods.mash_best_ref(mash_dist_dict=mash_dist_dict,
+                              accession_species_dict=accession_species_dict)
+    assert strain_best_ref['03-1057'] == 'NC_002945v4.fasta'
+    assert strain_ref_matches['03-1057'] == 968
+    assert strain_species['03-1057'] == 'af'
+
