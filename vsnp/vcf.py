@@ -13,6 +13,7 @@ class VCF(object):
 
         """
         self.fastq_manipulation()
+        self.fastq_stat_calculation()
         self.best_reference_calculation()
 
     def fastq_manipulation(self):
@@ -32,6 +33,19 @@ class VCF(object):
                 symlinks='\n'.join(['{strain_name}: {fastq_files}'.format(strain_name=sn, fastq_files=ff)
                                     for sn, ff in self.strain_fastq_dict.items()])))
 
+    def fastq_stat_calculation(self):
+        """
+
+        """
+        self.strain_qhist_dict, \
+            self.strain_lhist_dict = Methods.run_reformat_reads(strain_fastq_dict=self.strain_fastq_dict,
+                                                                strain_name_dict=self.strain_name_dict,
+                                                                logfile=self.logfile)
+        self.strain_average_quality_dict, \
+            self.strain_qual_over_thirty_dict = \
+            Methods.parse_quality_histogram(strain_qhist_dict=self.strain_qhist_dict)
+        self.strain_avg_read_lengths = Methods.parse_length_histograms(strain_lhist_dict=self.strain_lhist_dict)
+
     def best_reference_calculation(self):
         """
 
@@ -39,7 +53,6 @@ class VCF(object):
         logging.info('Running MASH analyses')
         self.fastq_sketch_dict = Methods.call_mash_sketch(strain_fastq_dict=self.strain_fastq_dict,
                                                           strain_name_dict=self.strain_name_dict,
-                                                          threads=self.threads,
                                                           logfile=self.logfile)
         logging.info('Parsing MASH outputs to determine closest reference genomes')
         self.mash_dist_dict = Methods.call_mash_dist(strain_fastq_dict=self.strain_fastq_dict,
@@ -47,7 +60,6 @@ class VCF(object):
                                                      fastq_sketch_dict=self.fastq_sketch_dict,
                                                      ref_sketch_file=os.path.join(
                                                            self.dependencypath, 'mash', 'vsnp_reference.msh'),
-                                                     threads=self.threads,
                                                      logfile=self.logfile)
         logging.info('Loading reference genome: species dictionary')
 
@@ -98,4 +110,9 @@ class VCF(object):
         self.strain_best_ref = dict()
         self.strain_ref_matches = dict()
         self.strain_species = dict()
+        self.strain_qhist_dict = dict()
+        self.strain_lhist_dict = dict()
+        self.strain_average_quality_dict = dict()
+        self.strain_qual_over_thirty_dict = dict()
+        self.strain_avg_read_lengths = dict()
 
