@@ -83,14 +83,14 @@ def test_vcf_file_list_no_files():
 def test_vcf_file_list():
     global file_list
     file_list = Methods.file_list(path=filepath)
-    assert len(file_list) == 7
+    assert len(file_list) == 6
 
 
 def test_strain_dict():
     global strain_folder_dict
     strain_folder_dict = Methods.strain_list(fastq_files=file_list)
     for strain_folder, fastq_files in strain_folder_dict.items():
-        if os.path.basename(strain_folder) == '14-2093':
+        if os.path.basename(strain_folder) in ['14-2093', '13-1941']:
             assert len(fastq_files) == 1
         else:
             assert len(fastq_files) == 2
@@ -125,7 +125,7 @@ def test_strain_linker():
                                           strain_name_dict=strain_name_dict)
     assert [strain for strain in strain_fastq_dict] == ['03-1057', '13-1941', '13-1950', '14-2093']
     for strain_name, fastq_files in strain_fastq_dict.items():
-        if strain_name == '14-2093':
+        if strain_name in ['14-2093', '13-1941']:
             assert len(fastq_files) == 1
         else:
             assert len(fastq_files) == 2
@@ -133,12 +133,35 @@ def test_strain_linker():
             assert os.path.islink(symlink)
 
 
-def test_mash_sketch():
-    global logfile, fastq_sketch_dict
+def test_reformat_quality():
+    global logfile, strain_qhist_dict, strain_lhist_dict
     logfile = os.path.join(filepath, 'log')
+    strain_qhist_dict, strain_lhist_dict = Methods.run_reformat_reads(strain_fastq_dict=strain_fastq_dict,
+                                                                      strain_name_dict=strain_name_dict,
+                                                                      logfile=logfile)
+    for strain_name, qhist_paths in strain_qhist_dict.items():
+        for strain_qhist_file in qhist_paths:
+            assert os.path.basename(strain_qhist_file).startswith(strain_name)
+            assert strain_qhist_file.endswith('_qchist.csv')
+
+
+def test_parse_reformat_quality():
+    global strain_average_quality_dict, strain_qual_over_thirty_dict
+    strain_average_quality_dict, strain_qual_over_thirty_dict = Methods.\
+        parse_quality_histogram(strain_qhist_dict=strain_qhist_dict)
+    assert strain_average_quality_dict['03-1057'] == [34.742922778562175, 30.805370650837197]
+
+
+def test_parse_reformat_length():
+    global strain_avg_read_lengths
+    strain_avg_read_lengths = Methods.parse_length_histograms(strain_lhist_dict=strain_lhist_dict)
+    assert strain_avg_read_lengths['03-1057'] == 225.23133
+
+
+def test_mash_sketch():
+    global fastq_sketch_dict
     fastq_sketch_dict = Methods.call_mash_sketch(strain_fastq_dict=strain_fastq_dict,
                                                  strain_name_dict=strain_name_dict,
-                                                 threads=4,
                                                  logfile=logfile)
     for strain, sketch_file in fastq_sketch_dict.items():
         assert os.path.isfile(sketch_file)
@@ -150,8 +173,7 @@ def test_mash_dist():
                                             strain_name_dict=strain_name_dict,
                                             fastq_sketch_dict=fastq_sketch_dict,
                                             ref_sketch_file=os.path.join(
-                                                  testpath, 'dependencies', 'mash', 'vsnp_reference.msh'),
-                                            threads=4,
+                                                  dependencypath, 'mash', 'vsnp_reference.msh'),
                                             logfile=logfile)
     for strain, tab_output in mash_dist_dict.items():
         assert os.path.isfile(tab_output)
