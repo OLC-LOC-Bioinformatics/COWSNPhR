@@ -158,6 +158,12 @@ def test_parse_reformat_length():
     assert strain_avg_read_lengths['03-1057'] == 225.23133
 
 
+def test_file_size():
+    global strain_fastq_size_dict
+    strain_fastq_size_dict = Methods.find_fastq_size(strain_fastq_dict)
+    assert strain_fastq_size_dict['13-1950'] == [32.82019233703613, 37.25274848937988]
+
+
 def test_mash_sketch():
     global fastq_sketch_dict
     fastq_sketch_dict = Methods.call_mash_sketch(strain_fastq_dict=strain_fastq_dict,
@@ -187,11 +193,92 @@ def test_mash_accession_species():
 
 
 def test_mash_best_ref():
-    global strain_best_ref, strain_ref_matches, strain_species
-    strain_best_ref, strain_ref_matches, strain_species = \
+    global strain_best_ref_dict, strain_ref_matches_dict, strain_species_dict
+    strain_best_ref_dict, strain_ref_matches_dict, strain_species_dict = \
         Methods.mash_best_ref(mash_dist_dict=mash_dist_dict,
                               accession_species_dict=accession_species_dict)
-    assert strain_best_ref['03-1057'] == 'NC_002945v4.fasta'
-    assert strain_ref_matches['03-1057'] == 968
-    assert strain_species['03-1057'] == 'af'
+    assert strain_best_ref_dict['03-1057'] == 'NC_002945v4.fasta'
+    assert strain_ref_matches_dict['03-1057'] == 968
+    assert strain_species_dict['03-1057'] == 'af'
+
+
+def test_reference_file_paths():
+    global reference_link_path_dict
+    reference_link_path_dict = Methods.reference_folder(strain_best_ref_dict=strain_best_ref_dict,
+                                                        dependency_path=dependencypath)
+    assert reference_link_path_dict['03-1057'] == 'mycobacterium/tbc/af2122/script_dependents/NC_002945v4.fasta'
+
+
+def test_bowtie2_build():
+    global strain_bowtie2_index_dict
+    strain_bowtie2_index_dict = Methods.bowtie2_build(reference_link_path_dict=reference_link_path_dict,
+                                                      dependency_path=dependencypath,
+                                                      logfile=logfile)
+    assert os.path.isfile(os.path.join(dependencypath, 'mycobacterium', 'tbc', 'af2122', 'script_dependents',
+                                       'NC_002945v4.1.bt2'))
+    assert os.path.split(strain_bowtie2_index_dict['03-1057'])[-1] == 'NC_002945v4'
+
+
+def test_bowtie2_map():
+    global strain_sorted_bam_dict
+    strain_sorted_bam_dict = Methods.bowtie2_map(strain_fastq_dict=strain_fastq_dict,
+                                                 strain_name_dict=strain_name_dict,
+                                                 strain_bowtie2_index_dict=strain_bowtie2_index_dict,
+                                                 threads=4,
+                                                 logfile=logfile)
+    for strain_name, sorted_bam in strain_sorted_bam_dict.items():
+        assert os.path.isfile(sorted_bam)
+
+
+def test_unmapped_reads_extract():
+    global strain_unmapped_reads_dict
+    strain_unmapped_reads_dict = Methods.extract_unmapped_reads(strain_sorted_bam_dict=strain_sorted_bam_dict,
+                                                                strain_name_dict=strain_name_dict,
+                                                                threads=4,
+                                                                logfile=logfile)
+    for strain_name, unmapped_reads_fastq in strain_unmapped_reads_dict.items():
+        assert os.path.getsize(unmapped_reads_fastq) > 0
+
+
+def test_skesa_assembled_unmapped():
+    global strain_skesa_output_fasta_dict
+    strain_skesa_output_fasta_dict = Methods.assemble_unmapped_reads(
+        strain_unmapped_reads_dict=strain_unmapped_reads_dict,
+        strain_name_dict=strain_name_dict,
+        threads=4,
+        logfile=logfile)
+    assert os.path.getsize(strain_skesa_output_fasta_dict['03-1057']) == 0
+    assert os.path.getsize(strain_skesa_output_fasta_dict['13-1941']) == 45462
+
+
+def test_number_unmapped_contigs():
+    global strain_unmapped_contigs_dict
+    strain_unmapped_contigs_dict = Methods.assembly_stats(strain_skesa_output_fasta_dict=strain_skesa_output_fasta_dict)
+    assert strain_unmapped_contigs_dict['13-1950'] == 0
+    assert strain_unmapped_contigs_dict['13-1941'] == 37
+
+
+def test_samtools_index():
+    Methods.samtools_index(strain_sorted_bam_dict=strain_sorted_bam_dict,
+                           strain_name_dict=strain_name_dict,
+                           threads=4,
+                           logfile=logfile)
+    for strain_name, sorted_bam in strain_sorted_bam_dict.items():
+        assert os.path.isfile(sorted_bam + '.bai')
+
+
+def test_qualimap():
+    global strain_qualimap_report_dict
+    strain_qualimap_report_dict = Methods.run_qualimap(strain_sorted_bam_dict=strain_sorted_bam_dict,
+                                                       strain_name_dict=strain_name_dict,
+                                                       logfile=logfile)
+    for strain_name, qualimap_report in strain_qualimap_report_dict.items():
+        assert os.path.isfile(qualimap_report)
+
+
+def test_qualimap_parse():
+    global strain_qualimap_outputs_dict
+    strain_qualimap_outputs_dict = Methods.parse_qualimap(strain_qualimap_report_dict=strain_qualimap_report_dict)
+    assert strain_qualimap_outputs_dict['13-1950']['MappedReads'] == '374103(93.53%)'
+
 
