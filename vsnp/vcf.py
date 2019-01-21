@@ -13,8 +13,9 @@ class VCF(object):
 
         """
         self.fastq_manipulation()
-        self.fastq_stat_calculation()
         self.best_reference_calculation()
+        self.reference_mapping()
+        self.stat_calculation()
 
     def fastq_manipulation(self):
         """
@@ -32,19 +33,6 @@ class VCF(object):
             'Strain-specific symlinked FASTQ files: \n{symlinks}'.format(
                 symlinks='\n'.join(['{strain_name}: {fastq_files}'.format(strain_name=sn, fastq_files=ff)
                                     for sn, ff in self.strain_fastq_dict.items()])))
-
-    def fastq_stat_calculation(self):
-        """
-
-        """
-        self.strain_qhist_dict, \
-            self.strain_lhist_dict = Methods.run_reformat_reads(strain_fastq_dict=self.strain_fastq_dict,
-                                                                strain_name_dict=self.strain_name_dict,
-                                                                logfile=self.logfile)
-        self.strain_average_quality_dict, \
-            self.strain_qual_over_thirty_dict = \
-            Methods.parse_quality_histogram(strain_qhist_dict=self.strain_qhist_dict)
-        self.strain_avg_read_lengths = Methods.parse_length_histograms(strain_lhist_dict=self.strain_lhist_dict)
 
     def best_reference_calculation(self):
         """
@@ -67,9 +55,26 @@ class VCF(object):
             self.dependencypath, 'mash', 'species_accessions.csv'))
 
         logging.info('Determining closest reference genome and extracting corresponding species from MASH outputs')
-        self.strain_best_ref, self.strain_ref_matches, self.strain_species = \
+        self.strain_best_ref_dict, self.strain_ref_matches_dict, self.strain_species_dict = \
             Methods.mash_best_ref(mash_dist_dict=self.mash_dist_dict,
                                   accession_species_dict=self.accession_species_dict)
+
+    def reference_mapping(self):
+        logging.info('Running bowtie2 build')
+
+    def stat_calculation(self):
+        """
+
+        """
+        logging.info('Calculating quality and length distributions of FASTQ reads')
+        self.strain_qhist_dict, \
+            self.strain_lhist_dict = Methods.run_reformat_reads(strain_fastq_dict=self.strain_fastq_dict,
+                                                                strain_name_dict=self.strain_name_dict,
+                                                                logfile=self.logfile)
+        self.strain_average_quality_dict, \
+            self.strain_qual_over_thirty_dict = \
+            Methods.parse_quality_histogram(strain_qhist_dict=self.strain_qhist_dict)
+        self.strain_avg_read_lengths = Methods.parse_length_histograms(strain_lhist_dict=self.strain_lhist_dict)
 
     def __init__(self, path, threads, debug=False):
         """
@@ -107,9 +112,9 @@ class VCF(object):
         self.fastq_sketch_dict = dict()
         self.mash_dist_dict = dict()
         self.accession_species_dict = dict()
-        self.strain_best_ref = dict()
-        self.strain_ref_matches = dict()
-        self.strain_species = dict()
+        self.strain_best_ref_dict = dict()
+        self.strain_ref_matches_dict = dict()
+        self.strain_species_dict = dict()
         self.strain_qhist_dict = dict()
         self.strain_lhist_dict = dict()
         self.strain_average_quality_dict = dict()
