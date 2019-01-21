@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from accessoryFunctions.accessoryFunctions import filer, make_path, relative_symlink, run_subprocess, write_to_logfile
-from biotools import mash
+from Bio import SeqIO
 from glob import glob
 import os
 __author__ = 'adamkoziol'
@@ -114,7 +114,7 @@ class Methods(object):
                 # Set the absolute path of the quality and length histogram output file. Include the
                 # strain name, as well as the file number count
                 qual_histo = os.path.join(strain_folder, '{sn}_R{count}_qchist.csv'.format(sn=strain_name,
-                                                                                          count=count))
+                                                                                           count=count))
                 length_histo = os.path.join(strain_folder, '{sn}_R{count}_lhist.csv'.format(sn=strain_name,
                                                                                             count=count))
                 # Create the system call to reformat.sh. qchist: count of bases with each quality value, lhist:
@@ -230,6 +230,25 @@ class Methods(object):
         return strain_avg_read_lengths
 
     @staticmethod
+    def find_fastq_size(strain_fastq_dict):
+        """
+        Use os.path.getsize to extract the size of the FASTQ files. Convert the value in bytes to megabytes
+        :param strain_fastq_dict: type DICT: Dictionary of strain name: strain-specific FASTQ files
+        :return: strain_fastq_size_dict: Dictionary of strain name: list of sizes of FASTQ files in megabytes
+        """
+        # Initialise a dictionary to store the strain-specific FASTQ file sizes
+        strain_fastq_size_dict = dict()
+        for strain_name, fastq_files in strain_fastq_dict.items():
+            # Get the strain-specific list ready to be populated
+            strain_fastq_size_dict[strain_name] = list()
+            for fastq_file in fastq_files:
+                # Use os.path.getsize to get the filesize in bytes. Convert this to megabytes by dividing this number
+                # 1024*1024.0 (.0 is included, so that the divisor will be a float)
+                file_size = os.path.getsize(fastq_file) / (1024*1024.0)
+                strain_fastq_size_dict[strain_name].append(file_size)
+        return strain_fastq_size_dict
+
+    @staticmethod
     def call_mash_sketch(strain_fastq_dict, strain_name_dict, logfile):
         """
         Run MASH sketch on the provided FASTQ files
@@ -328,16 +347,16 @@ class Methods(object):
         number of matching hashes the strain and that reference genome share
         :param mash_dist_dict: type DICT: Dictionary of strain name: absolute path of MASH dist output table
         :param accession_species_dict: type DICT: Dictionary of reference accession: species code
-        :return: strain_best_ref: Dictionary of strain name: closest MASH-calculated reference genome
-        :return: strain_ref_matches: Dictionary of strain name: number of matching hashes between query and
+        :return: strain_best_ref_dict: Dictionary of strain name: closest MASH-calculated reference genome
+        :return: strain_ref_matches_dict: Dictionary of strain name: number of matching hashes between query and
         closest reference genome
-        :return: strain_species: Dictionary of strain name: species code
+        :return: strain_species_dict: Dictionary of strain name: species code
         """
         # Initialise dictionaries to store the strain-specific closest reference genome, number of matching hashes
         # between read sets and the reference genome, as well as the species code
-        strain_best_ref = dict()
-        strain_ref_matches = dict()
-        strain_species = dict()
+        strain_best_ref_dict = dict()
+        strain_ref_matches_dict = dict()
+        strain_species_dict = dict()
         for strain_name, mash_dist_table in mash_dist_dict.items():
             with open(mash_dist_table, 'r') as mash_dist:
                 # Extract all the data included on each line of the table outputs
@@ -345,9 +364,293 @@ class Methods(object):
             # Split the total of matching hashes from the total number of hashes
             matching_hashes = int(matching_hashes.split('/')[0])
             # Populate the dictionaries appropriately
-            strain_best_ref[strain_name] = best_ref
-            strain_ref_matches[strain_name] = matching_hashes
-            strain_species[strain_name] = accession_species_dict[best_ref]
-        return strain_best_ref, strain_ref_matches, strain_species
+            strain_best_ref_dict[strain_name] = best_ref
+            strain_ref_matches_dict[strain_name] = matching_hashes
+            strain_species_dict[strain_name] = accession_species_dict[best_ref]
+        return strain_best_ref_dict, strain_ref_matches_dict, strain_species_dict
 
+    @staticmethod
+    def reference_folder(strain_best_ref_dict, dependency_path):
+        """
+        Create a dictionary of base strain name to the folder containing all the closest reference genome dependency
+        files
+        :param dependency_path: type STR: Absolute path to dependency folder
+        :param strain_best_ref_dict: type DICT: Dictionary of strain name: closest reference genome
+        :return: reference_link_path_dict: Dictionary of strain name: relative path to symlinked reference genome
+        """
+        # Initialise dictionaries
+        reference_link_dict = dict()
+        reference_link_path_dict = dict()
+        # Read in the .csv file with reference file name: relative symbolic link information
+        with open(os.path.join(dependency_path, 'reference_links.csv'), 'r') as reference_paths:
+            for line in reference_paths:
+                # Extract the link information
+                reference, linked_file = line.rstrip().split(',')
+                reference_link_dict[reference] = linked_file
+        # Use the strain-specific best reference genome name to extract the relative symlink information
+        for strain_name, best_ref in strain_best_ref_dict.items():
+            reference_link_path_dict[strain_name] = reference_link_dict[best_ref]
+        return reference_link_path_dict
 
+    @staticmethod
+    def bowtie2_build(reference_link_path_dict, dependency_path, logfile):
+        """
+        Use bowtie2-build to index the reference genomes
+        :param reference_link_path_dict: type DICT: Dictionary of base strain name: reference folder path
+        :param dependency_path: type STR: Absolute path to dependency folder
+        :param logfile: type STR: Absolute path to logfile basename
+        :return: strain_bowtie2_index_dict: Dictionary of strain name: Absolute path to bowtie2 index
+        """
+        # Initialise a dictionary to store the absolute path to the bowtie2 index
+        strain_bowtie2_index_dict = dict()
+        for strain_name, ref_link in reference_link_path_dict.items():
+            # Set the absolute path, and strip off the file extension for use in the build call
+            base_name = os.path.abspath(os.path.join(dependency_path, os.path.splitext(ref_link)[0]))
+            abs_ref_link = os.path.abspath(os.path.join(dependency_path, ref_link))
+            build_cmd = 'bowtie2-build {ref_file} {base_name}'.format(ref_file=abs_ref_link,
+                                                                      base_name=base_name)
+            # Only run the system call if the index files haven't already been created
+            if not os.path.isfile('{base_name}.1.bt2'.format(base_name=base_name)):
+                out, err = run_subprocess(build_cmd)
+                # Write the stdout and stderr to the log files
+                write_to_logfile(out=out,
+                                 err=err,
+                                 logfile=logfile)
+            # Populate the dictionary
+            strain_bowtie2_index_dict[strain_name] = base_name
+        return strain_bowtie2_index_dict
+
+    @staticmethod
+    def bowtie2_map(strain_fastq_dict, strain_name_dict, strain_bowtie2_index_dict, threads, logfile):
+        """
+        Create a sorted BAM file by mapping the strain-specific FASTQ reads against the closest reference genome with
+        bowtie2, converting the SAM outputs from bowtie2 to BAM format with samtools view, and sorting the BAM file
+        with samtools sort. The individual commands are piped together to prevent the creation of unnecessary
+        intermediate files
+        :param strain_fastq_dict: type DICT: Dictionary of strain name: list of FASTQ files
+        :param strain_name_dict: type DICT: Dictionary of strain name: strain-specific working folder
+        :param strain_bowtie2_index_dict: type DICT: Dictionary of strain name: Absolute path to bowtie2 index
+        :param threads: type INT: Number of threads to request for the analyses
+        :param logfile: type STR: Absolute path to logfile basename
+        :return: strain_sorted_bam_dict: Dictionary of strain name: absolute path to sorted BAM files
+        """
+        # Initialise a dictionary to store the absolute path of the sorted BAM files
+        strain_sorted_bam_dict = dict()
+        for strain_name, fastq_files in strain_fastq_dict.items():
+            # Extract the required variables from the appropriate dictionaries
+            strain_folder = strain_name_dict[strain_name]
+            reference_index = strain_bowtie2_index_dict[strain_name]
+            abs_ref_link = reference_index + '.fasta'
+            # Set the absolute path of the sorted BAM file
+            sorted_bam = os.path.join(strain_folder, '{sn}_sorted.bam'.format(sn=strain_name))
+            # Compound mapping command: bowtie2 | samtools view (-h: include headers, -b: out BAM, -T: target file)
+            # | samtools sort
+            map_cmd = 'bowtie2 -x {ref_index} -U {fastq} -p {threads} | ' \
+                      'samtools view -@ {threads} -h -bT {abs_ref_link} - | ' \
+                      'samtools sort - -@ {threads} -o {sorted_bam}'.format(ref_index=reference_index,
+                                                                            fastq=','.join(fastq_files),
+                                                                            threads=threads,
+                                                                            abs_ref_link=abs_ref_link,
+                                                                            sorted_bam=sorted_bam)
+            # Only run the system call if the sorted BAM file doesn't already exist
+            if not os.path.isfile(sorted_bam):
+                out, err = run_subprocess(map_cmd)
+                # Write STDOUT and STDERR to the logfile
+                write_to_logfile(out=out,
+                                 err=err,
+                                 logfile=logfile,
+                                 samplelog=os.path.join(strain_folder, 'log.out'),
+                                 sampleerr=os.path.join(strain_folder, 'log.err'))
+            # Populate the dictionary with the absolute path to the sorted BAM file
+            strain_sorted_bam_dict[strain_name] = sorted_bam
+        return strain_sorted_bam_dict
+
+    @staticmethod
+    def extract_unmapped_reads(strain_sorted_bam_dict, strain_name_dict, threads, logfile):
+        """
+        Use samtools bam2fq to extract all unmapped reads from the sorted BAM file into a single FASTQ file
+        :param strain_sorted_bam_dict: type DICT: Dictionary of strain name: absolute path to sorted BAM file
+        :param strain_name_dict: type DICT: Dictionary of strain name: strain-specific working directory
+        :param threads: type INT: Number of threads to request for the analyses
+        :param logfile: type STR: Absolute path to the logfile basename
+        :return: strain_unmapped_reads_dict: Dictionary of strain name: absolute path to unmapped reads FASTQ file
+        """
+        # Initialise a dictionary to store the absolute path of the unmapped reads file
+        strain_unmapped_reads_dict = dict()
+        for strain_name, sorted_bam in strain_sorted_bam_dict.items():
+            # Extract the absolute path of the strain-specific working directory
+            strain_folder = strain_name_dict[strain_name]
+            # Set the absolute path of the unmapped reads FASTQ file
+            unmapped_reads = os.path.join(strain_folder, '{sn}_unmapped.fastq.gz'.format(sn=strain_name))
+            # Create the system call to samtools bam2fq. Use -f4 to specify unmapped reads. Pipe output to gzip
+            unmapped_cmd = 'samtools bam2fq -@ {threads} -f4 {sorted_bam} | gzip > {unmapped_reads}'\
+                .format(threads=threads,
+                        sorted_bam=sorted_bam,
+                        unmapped_reads=unmapped_reads)
+            # Run the system call if the reads file does not exist
+            if not os.path.isfile(unmapped_reads):
+                out, err = run_subprocess(unmapped_cmd)
+                # Write STDOUT and STDERR to the logfile
+                write_to_logfile(out=out,
+                                 err=err,
+                                 logfile=logfile,
+                                 samplelog=os.path.join(strain_folder, 'log.out'),
+                                 sampleerr=os.path.join(strain_folder, 'log.err'))
+            strain_unmapped_reads_dict[strain_name] = unmapped_reads
+        return strain_unmapped_reads_dict
+
+    @staticmethod
+    def assemble_unmapped_reads(strain_unmapped_reads_dict, strain_name_dict, threads, logfile):
+        """
+        Run SKESA to attempt to assembled any unmapped reads
+        :param strain_unmapped_reads_dict: type DICT: Dictionary of strain name: absolute path to unmapped reads
+        FASTQ file
+        :param strain_name_dict: type DICT: Dictionary of strain name: strain-specific working directory
+        :param threads: type INT: Number of threads to request for the analyses
+        :param logfile: type STR: Absolute path to the logfile basename
+        :return: strain_skesa_output_fasta_dict: Dictionary of strain name: absolute path to SKESA assembly
+        """
+        # Initialise a dictionary to store the absolute path of the assembly
+        strain_skesa_output_fasta_dict = dict()
+        for strain_name, unmapped_reads in strain_unmapped_reads_dict.items():
+            # Extract the strain-specific working directory
+            strain_folder = strain_name_dict[strain_name]
+            # Set the absolute path, and create the SKESA output directory
+            skesa_output_dir = os.path.join(strain_folder, 'skesa')
+            make_path(skesa_output_dir)
+            # Set the absolute path of the contigs file
+            skesa_assembly_file = os.path.join(skesa_output_dir, '{sn}_unmapped.fasta'.format(sn=strain_name))
+            # Create the SKESA system call. Use a minimum contig size of 1000
+            skesa_cmd = 'skesa --fastq {fastqfiles} --cores {threads} --use_paired_ends --min_contig 1000 ' \
+                        '--vector_percent 1 --contigs_out {contigs}' \
+                .format(fastqfiles=unmapped_reads,
+                        threads=threads,
+                        contigs=skesa_assembly_file)
+            # Run the system call if the qualimap report does not exist
+            if not os.path.isfile(skesa_assembly_file):
+                out, err = run_subprocess(skesa_cmd)
+                # Write STDOUT and STDERR to the logfile
+                write_to_logfile(out=out,
+                                 err=err,
+                                 logfile=logfile,
+                                 samplelog=os.path.join(strain_folder, 'log.out'),
+                                 sampleerr=os.path.join(strain_folder, 'log.err'))
+            # Populate the dictionary with the absolute path to the contigs (the file will exist, but may be empty)
+            strain_skesa_output_fasta_dict[strain_name] = skesa_assembly_file
+        return strain_skesa_output_fasta_dict
+
+    @staticmethod
+    def assembly_stats(strain_skesa_output_fasta_dict):
+        strain_unmapped_contigs_dict = dict()
+        for strain_name, assembly_file in strain_skesa_output_fasta_dict.items():
+            strain_unmapped_contigs_dict[strain_name] = 0
+            if os.path.getsize(assembly_file) > 0:
+                for _ in SeqIO.parse(assembly_file, 'fasta'):
+                    strain_unmapped_contigs_dict[strain_name] += 1
+        return strain_unmapped_contigs_dict
+
+    @staticmethod
+    def samtools_index(strain_sorted_bam_dict, strain_name_dict, threads, logfile):
+        """
+        Index the sorted BAM file with samtools index
+        :param strain_sorted_bam_dict: type DICT: Dictionary of strain name: absolute path to sorted BAM file
+        :param strain_name_dict: type DICT: Dictionary of strain name: strain-specific working directory
+        :param threads: type INT: Number of threads to request for the analyses
+        :param logfile: type STR: Absolute path to the logfile basename
+        """
+        for strain_name, sorted_bam in strain_sorted_bam_dict.items():
+            # Extract the folder name from the dictionary
+            strain_folder = strain_name_dict[strain_name]
+            # Set the system call for the samtools index command
+            index_cmd = 'samtools index -@ {threads} {sorted_bam}'.format(threads=threads,
+                                                                          sorted_bam=sorted_bam)
+            # Only run the command if the .bai index file does not exist
+            if not os.path.isfile(sorted_bam + '.bai'):
+                out, err = run_subprocess(index_cmd)
+                # Write STDOUT and STDERR to the logfile
+                write_to_logfile(out=out,
+                                 err=err,
+                                 logfile=logfile,
+                                 samplelog=os.path.join(strain_folder, 'log.out'),
+                                 sampleerr=os.path.join(strain_folder, 'log.err'))
+
+    @staticmethod
+    def run_qualimap(strain_sorted_bam_dict, strain_name_dict, logfile):
+        """
+        Run qualimap on the sorted BAM files
+        :param strain_sorted_bam_dict: type DICT: Dictionary of strain name: absolute path of sorted BAM file
+        :param strain_name_dict: type DICT: Dictionary of strain name: absolute path of strain-specific working folder
+        :param logfile: type STR: Absolute path of logfile basename
+        :return: strain_qualimap_report_dict: Dictionary of strain name: absolute path of qualimap report
+        """
+        # Initialise the dictionary to store the absolute path of the qualimap report
+        strain_qualimap_report_dict = dict()
+        for strain_name, sorted_bam in strain_sorted_bam_dict.items():
+            # Extract the absolute path of the working directory from the dictionary
+            strain_folder = strain_name_dict[strain_name]
+            # Set the path, and create a folder in which the qualimap results are to be stored
+            qualimap_output_dir = os.path.join(strain_folder, 'qualimap')
+            make_path(qualimap_output_dir)
+            # Set the absolute path of the qualimap report to be parsed
+            qualimap_report = os.path.join(qualimap_output_dir, 'genome_results.txt')
+            # Create the qualimap system call
+            qualimap_cmd = 'qualimap bamqc -bam {sorted_bam} -outdir {qualimap_out_dir}'\
+                .format(sorted_bam=sorted_bam,
+                        qualimap_out_dir=qualimap_output_dir)
+            # Run the system call if the qualimap report does not exist
+            if not os.path.isfile(qualimap_report):
+                out, err = run_subprocess(qualimap_cmd)
+                # Write STDOUT and STDERR to the logfile
+                write_to_logfile(out=out,
+                                 err=err,
+                                 logfile=logfile,
+                                 samplelog=os.path.join(strain_folder, 'log.out'),
+                                 sampleerr=os.path.join(strain_folder, 'log.err'))
+            # Populate the dictionary with the path to the report
+            strain_qualimap_report_dict[strain_name] = qualimap_report
+        return strain_qualimap_report_dict
+
+    @staticmethod
+    def parse_qualimap(strain_qualimap_report_dict):
+        """
+        Create a dictionary of the key: value pairs in the qualimap report
+        :param strain_qualimap_report_dict: type DICT: Dictionary of strain name: absolute path of qualimap report
+        :return: strain_qualimap_outputs_dict: Dictionary of strain name: dictionary of key: value from qualimap report
+        """
+        # Initialise a dictionary to store the qualimap outputs in dictionary format
+        strain_qualimap_outputs_dict = dict()
+        for strain_name, qualimap_report in strain_qualimap_report_dict.items():
+            # Initialise a dictionary to hold the qualimap results - will be overwritten for each strain
+            qualimap_dict = dict()
+            with open(qualimap_report, 'r') as report:
+                for line in report:
+                    # Sanitise the keys and values using self.analyze
+                    key, value = Methods.analyze(line)
+                    # If the keys and values exist, enter them into the dictionary
+                    if (key, value) != (None, None):
+                        # Populate the dictionary with the sanitised key: value pair. Strip of the 'X' from the depth
+                        # values
+                        qualimap_dict[key] = value.rstrip('X')
+            # Populate the dictionary with the sanitised outputs
+            strain_qualimap_outputs_dict[strain_name] = qualimap_dict
+        return strain_qualimap_outputs_dict
+
+    @staticmethod
+    def analyze(line):
+        """
+        Parse lines in qualimap reports. Split lines into key, value pairs, and sanitise lines, so that these pairs
+        can be added to a dictionary
+        :param line: type STR: Current line from a qualimap report
+        :return: Sanitised key: value pair
+        """
+        # Split on ' = '
+        if ' = ' in line:
+            key, value = line.split(' = ')
+            # Replace occurrences of: "number of ", "'", and " " with empty strings
+            key = key.replace('number of ', "").replace("'", "").title().replace(" ", "")
+            # Remove commas
+            value = value.replace(",", "").replace(" ", "").rstrip()
+        # If '=' is absent, we are not interested in this line. Set the key and value to None
+        else:
+            key, value = None, None
+        return key, value
