@@ -185,6 +185,6 @@ dependencies:
     - sipprverse==0.2.20
     - urllib3==1.24.1
     - validator-helper==0.0.6
-    - vsnpdev==0.0.01
+    - vsnpdev==0.0.3
 prefix: /home/adamkoziol/miniconda3/envs/vsnp_dev
 
