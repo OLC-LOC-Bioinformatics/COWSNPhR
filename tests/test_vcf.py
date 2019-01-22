@@ -2,6 +2,7 @@
 from accessoryFunctions.accessoryFunctions import filer, make_path
 from vsnp.methods import Methods
 from vsnp.vcf import VCF
+import multiprocessing
 import pytest
 import os
 __author__ = 'adamkoziol'
@@ -9,11 +10,13 @@ __author__ = 'adamkoziol'
 testpath = os.path.abspath(os.path.dirname(__file__))
 filepath = os.path.join(testpath, 'files')
 dependencypath = os.path.join(os.path.dirname(testpath), 'dependencies')
+threads = multiprocessing.cpu_count() - 1
+
 
 def test_invalid_path():
     with pytest.raises(AssertionError):
         assert VCF(path='not_a_real_path',
-                   threads=1)
+                   threads=threads)
 
 
 def test_no_threads():
@@ -24,7 +27,7 @@ def test_no_threads():
 def test_valid_path():
     global vcf_object
     vcf_object = VCF(path=testpath,
-                     threads=1)
+                     threads=threads)
     assert vcf_object
 
 
@@ -210,10 +213,11 @@ def test_reference_file_paths():
 
 
 def test_bowtie2_build():
-    global strain_bowtie2_index_dict
-    strain_bowtie2_index_dict = Methods.bowtie2_build(reference_link_path_dict=reference_link_path_dict,
-                                                      dependency_path=dependencypath,
-                                                      logfile=logfile)
+    global strain_bowtie2_index_dict, strain_reference_abs_path_dict
+    strain_bowtie2_index_dict, strain_reference_abs_path_dict = \
+        Methods.bowtie2_build(reference_link_path_dict=reference_link_path_dict,
+                              dependency_path=dependencypath,
+                              logfile=logfile)
     assert os.path.isfile(os.path.join(dependencypath, 'mycobacterium', 'tbc', 'af2122', 'script_dependents',
                                        'NC_002945v4.1.bt2'))
     assert os.path.split(strain_bowtie2_index_dict['03-1057'])[-1] == 'NC_002945v4'
@@ -224,7 +228,7 @@ def test_bowtie2_map():
     strain_sorted_bam_dict = Methods.bowtie2_map(strain_fastq_dict=strain_fastq_dict,
                                                  strain_name_dict=strain_name_dict,
                                                  strain_bowtie2_index_dict=strain_bowtie2_index_dict,
-                                                 threads=4,
+                                                 threads=threads,
                                                  logfile=logfile)
     for strain_name, sorted_bam in strain_sorted_bam_dict.items():
         assert os.path.isfile(sorted_bam)
@@ -234,7 +238,7 @@ def test_unmapped_reads_extract():
     global strain_unmapped_reads_dict
     strain_unmapped_reads_dict = Methods.extract_unmapped_reads(strain_sorted_bam_dict=strain_sorted_bam_dict,
                                                                 strain_name_dict=strain_name_dict,
-                                                                threads=4,
+                                                                threads=threads,
                                                                 logfile=logfile)
     for strain_name, unmapped_reads_fastq in strain_unmapped_reads_dict.items():
         assert os.path.getsize(unmapped_reads_fastq) > 0
@@ -245,7 +249,7 @@ def test_skesa_assembled_unmapped():
     strain_skesa_output_fasta_dict = Methods.assemble_unmapped_reads(
         strain_unmapped_reads_dict=strain_unmapped_reads_dict,
         strain_name_dict=strain_name_dict,
-        threads=4,
+        threads=threads,
         logfile=logfile)
     assert os.path.getsize(strain_skesa_output_fasta_dict['03-1057']) == 0
     assert os.path.getsize(strain_skesa_output_fasta_dict['13-1941']) == 45462
@@ -261,7 +265,7 @@ def test_number_unmapped_contigs():
 def test_samtools_index():
     Methods.samtools_index(strain_sorted_bam_dict=strain_sorted_bam_dict,
                            strain_name_dict=strain_name_dict,
-                           threads=4,
+                           threads=threads,
                            logfile=logfile)
     for strain_name, sorted_bam in strain_sorted_bam_dict.items():
         assert os.path.isfile(sorted_bam + '.bai')
@@ -279,6 +283,25 @@ def test_qualimap():
 def test_qualimap_parse():
     global strain_qualimap_outputs_dict
     strain_qualimap_outputs_dict = Methods.parse_qualimap(strain_qualimap_report_dict=strain_qualimap_report_dict)
-    assert strain_qualimap_outputs_dict['13-1950']['MappedReads'] == '374103(93.53%)'
+    assert strain_qualimap_outputs_dict['13-1950']['MappedReads'] == '374081(93.53%)'
 
 
+def test_regions():
+    global strain_ref_regions_dict
+    strain_ref_regions_dict = Methods.reference_regions(strain_reference_abs_path_dict=strain_reference_abs_path_dict,
+                                                        logfile=logfile)
+    for strain_name, ref_regions_file in strain_ref_regions_dict.items():
+        assert os.path.isfile(ref_regions_file)
+        assert os.path.getsize(ref_regions_file) > 0
+
+
+def test_freebayes():
+    global strain_vcf_dict
+    strain_vcf_dict = Methods.freebayes(strain_sorted_bam_dict=strain_sorted_bam_dict,
+                                        strain_name_dict=strain_name_dict,
+                                        strain_reference_abs_path_dict=strain_reference_abs_path_dict,
+                                        strain_ref_regions_dict=strain_ref_regions_dict,
+                                        threads=threads,
+                                        logfile=logfile)
+    for strain_name, vcf_file in strain_vcf_dict.items():
+        assert os.path.getsize(vcf_file) > 10000
