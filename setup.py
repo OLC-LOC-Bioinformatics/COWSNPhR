@@ -3,8 +3,8 @@ from setuptools import setup, find_packages
 __author__ = 'stuber, adamkoziol'
 
 setup(
-    name="vSNP",
-    version="0.0.1",
+    name="vsnpdev",
+    version="0.0.01",
     packages=find_packages(),
     include_package_data=True,
     entry_points={
