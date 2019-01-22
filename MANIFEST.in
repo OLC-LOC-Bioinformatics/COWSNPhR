@@ -1,0 +1,6 @@
+recursive-include dependencies/*
+recursive-include dependencies/bi/*
+recursive-include dependencies/brucella/*
+recursive-include dependencies/mash/*
+recursive-include dependencies/mycobacterium/*
+recursive-include dependencies/virus/*
