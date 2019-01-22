@@ -400,12 +400,15 @@ class Methods(object):
         :param dependency_path: type STR: Absolute path to dependency folder
         :param logfile: type STR: Absolute path to logfile basename
         :return: strain_bowtie2_index_dict: Dictionary of strain name: Absolute path to bowtie2 index
+        :return: strain_reference_abs_path_dict: Dictionary of strain name: absolute path to reference file
         """
-        # Initialise a dictionary to store the absolute path to the bowtie2 index
+        # Initialise a dictionary to store the absolute path to the bowtie2 index and reference genome
         strain_bowtie2_index_dict = dict()
+        strain_reference_abs_path_dict = dict()
         for strain_name, ref_link in reference_link_path_dict.items():
             # Set the absolute path, and strip off the file extension for use in the build call
-            base_name = os.path.abspath(os.path.join(dependency_path, os.path.splitext(ref_link)[0]))
+            ref_abs_path = os.path.abspath(os.path.join(dependency_path, ref_link))
+            base_name = os.path.splitext(ref_abs_path)[0]
             abs_ref_link = os.path.abspath(os.path.join(dependency_path, ref_link))
             build_cmd = 'bowtie2-build {ref_file} {base_name}'.format(ref_file=abs_ref_link,
                                                                       base_name=base_name)
@@ -416,9 +419,10 @@ class Methods(object):
                 write_to_logfile(out=out,
                                  err=err,
                                  logfile=logfile)
-            # Populate the dictionary
+            # Populate the dictionaries
             strain_bowtie2_index_dict[strain_name] = base_name
-        return strain_bowtie2_index_dict
+            strain_reference_abs_path_dict[strain_name] = abs_ref_link
+        return strain_bowtie2_index_dict, strain_reference_abs_path_dict
 
     @staticmethod
     def bowtie2_map(strain_fastq_dict, strain_name_dict, strain_bowtie2_index_dict, threads, logfile):
@@ -443,11 +447,16 @@ class Methods(object):
             abs_ref_link = reference_index + '.fasta'
             # Set the absolute path of the sorted BAM file
             sorted_bam = os.path.join(strain_folder, '{sn}_sorted.bam'.format(sn=strain_name))
-            # Compound mapping command: bowtie2 | samtools view (-h: include headers, -b: out BAM, -T: target file)
-            # | samtools sort
-            map_cmd = 'bowtie2 -x {ref_index} -U {fastq} -p {threads} | ' \
+            # Compound mapping command: bowtie2 (with read groups enabled: --rg-id  and --rg flags)|
+            # samtools view (-h: include headers, -b: out BAM, -T: target file)
+            # samtools rmdup to remove duplicate reads
+            # samtools sort
+            map_cmd = 'bowtie2 --rg-id {sn} --rg SM:{sn} --rg PL:ILLUMINA --rg PI:250 -x {ref_index} ' \
+                      '-U {fastq} -p {threads} | ' \
                       'samtools view -@ {threads} -h -bT {abs_ref_link} - | ' \
-                      'samtools sort - -@ {threads} -o {sorted_bam}'.format(ref_index=reference_index,
+                      'samtools rmdup - -S - | ' \
+                      'samtools sort - -@ {threads} -o {sorted_bam}'.format(sn=strain_name,
+                                                                            ref_index=reference_index,
                                                                             fastq=','.join(fastq_files),
                                                                             threads=threads,
                                                                             abs_ref_link=abs_ref_link,
@@ -654,3 +663,84 @@ class Methods(object):
         else:
             key, value = None, None
         return key, value
+
+    @staticmethod
+    def reference_regions(strain_reference_abs_path_dict, logfile, size=100000):
+        """
+        Create a regions file to be used by freebayes-parallel. This file is the base pair position of the reference
+        genome in regions of a defined size (in this case 100000). The file contains the contig name: bp position range
+        NC_002945.4:0-100000
+        NC_002945.4:100000-200000
+        :param strain_reference_abs_path_dict: type DICT: Dictionary of strain name: absolute path of reference genome
+        :param logfile: type STR: Absolute path to logfile basename
+        :param size: type INT: Size of regions to create from reference genome
+        :return: strain_ref_regions_dict: Dictionary of strain name: regions file
+        """
+        # Initialise a dictionary to store the absolute path of the regions file
+        strain_ref_regions_dict = dict()
+        for strain_name, ref_genome in strain_reference_abs_path_dict.items():
+            # Set the absolute path of the regions file
+            regions_file = ref_genome + '.regions'
+            # Create the system call to fasta_generate_regions.py (part of the freebayes package)
+            regions_cmd = 'fasta_generate_regions.py {ref_genome}.fai {size} > {regions_file}'\
+                .format(ref_genome=ref_genome,
+                        size=size,
+                        regions_file=regions_file)
+            # Run the system call if the regions file does not exist
+            if not os.path.isfile(regions_file):
+                out, err = run_subprocess(regions_cmd)
+                # Write STDOUT and STDERR to the logfile
+                write_to_logfile(out=out,
+                                 err=err,
+                                 logfile=logfile)
+            # Populate the dictionary with the path to the regions file
+            strain_ref_regions_dict[strain_name] = regions_file
+        return strain_ref_regions_dict
+
+    @staticmethod
+    def freebayes(strain_sorted_bam_dict, strain_name_dict, strain_reference_abs_path_dict, strain_ref_regions_dict,
+                  threads, logfile):
+        """
+        Run freebayes-parallel on each sample
+        :param strain_sorted_bam_dict: type DICT: Dictionary of strain name: absolute path of sorted BAM file
+        :param strain_name_dict: type DICT: Dictionary of strain name: absolute path of strain-specific working folder
+        :param strain_reference_abs_path_dict: type DICT: Dictionary of strain name: absolute path of reference genome
+        :param strain_ref_regions_dict: type DICT: Dictionary of strain name: absolute path to reference genome
+        regions file
+        :param threads: type INT: Number of threads to request for the analyses
+        :param logfile: type STR: Absolute path to logfile basename
+        :return: strain_vcf_dict: Dictionary of strain name: freebayes-created .vcf file
+        """
+        # Initialise a dictionary to store the absolute path to the .vcf files
+        strain_vcf_dict = dict()
+        for strain_name, sorted_bam in strain_sorted_bam_dict.items():
+            # Extract the paths to the strain-specific working directory, the reference genome, and the regions file
+            strain_folder = strain_name_dict[strain_name]
+            ref_genome = strain_reference_abs_path_dict[strain_name]
+            ref_regions_file = strain_ref_regions_dict[strain_name]
+            # Set the absolute path to, and create the freebayes working directory
+            freebayes_out_dir = os.path.join(strain_folder, 'freebayes')
+            make_path(freebayes_out_dir)
+            # Set the name of the output .vcf file
+            freebayes_out_vcf = os.path.join(freebayes_out_dir, '{sn}.vcf'.format(sn=strain_name))
+            # Create the system call to freebayes-parallel
+            # Use the regions file to allow for parallelism
+            freebayes_cmd = 'freebayes-parallel {ref_regions} {threads} -E -1 -e 1 -u --strict-vcf ' \
+                            '-f {ref_genome} {sorted_bam} > {out_vcf}'\
+                .format(ref_regions=ref_regions_file,
+                        ref_genome=ref_genome,
+                        threads=threads,
+                        sorted_bam=sorted_bam,
+                        out_vcf=freebayes_out_vcf)
+            # Run the system call if the .vcf file does not exist
+            if not os.path.isfile(freebayes_out_vcf):
+                out, err = run_subprocess(freebayes_cmd)
+                # Write STDOUT and STDERR to the logfile
+                write_to_logfile(out=out,
+                                 err=err,
+                                 logfile=logfile,
+                                 samplelog=os.path.join(strain_folder, 'log.out'),
+                                 sampleerr=os.path.join(strain_folder, 'log.err'))
+            # Populate the dictionary with the path to the .vcf file
+            strain_vcf_dict[strain_name] = freebayes_out_vcf
+        return strain_vcf_dict
