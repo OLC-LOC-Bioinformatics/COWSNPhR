@@ -213,8 +213,8 @@ def test_reference_file_paths():
 
 
 def test_bowtie2_build():
-    global strain_bowtie2_index_dict, strain_reference_abs_path_dict
-    strain_bowtie2_index_dict, strain_reference_abs_path_dict = \
+    global strain_bowtie2_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict
+    strain_bowtie2_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict = \
         Methods.bowtie2_build(reference_link_path_dict=reference_link_path_dict,
                               dependency_path=dependencypath,
                               logfile=logfile)
@@ -305,3 +305,42 @@ def test_freebayes():
                                         logfile=logfile)
     for strain_name, vcf_file in strain_vcf_dict.items():
         assert os.path.getsize(vcf_file) > 10000
+
+
+def test_parse_vcf():
+    global strain_num_high_quality_snps_dict, strain_filtered_vcf_dict
+    strain_num_high_quality_snps_dict, strain_filtered_vcf_dict = Methods.parse_vcf(strain_vcf_dict=strain_vcf_dict)
+    assert strain_num_high_quality_snps_dict['13-1950'] == 466
+
+
+def test_spoligo_bait():
+    global strain_spoligo_stats_dict
+    strain_spoligo_stats_dict = Methods.bait_spoligo(strain_fastq_dict=strain_fastq_dict,
+                                                     strain_name_dict=strain_name_dict,
+                                                     spoligo_file=os.path.join(dependencypath,
+                                                                               'mycobacterium',
+                                                                               'spacers.fasta'),
+                                                     threads=threads,
+                                                     logfile=logfile,
+                                                     kmer=25)
+    for strain_name, spoligo_stats_file in strain_spoligo_stats_dict.items():
+        assert os.path.getsize(spoligo_stats_file) > 0
+
+
+def test_spoligo_parse():
+    global strain_binary_code_dict, strain_octal_code_dict, strain_hexadecimal_code_dict
+    strain_binary_code_dict, \
+        strain_octal_code_dict, \
+        strain_hexadecimal_code_dict = \
+        Methods.parse_spoligo(strain_spoligo_stats_dict=strain_spoligo_stats_dict)
+    assert strain_binary_code_dict['03-1057'] == '1101000000000010111111111111111101111100000'
+    assert strain_octal_code_dict['03-1057'] == '640013777767600'
+    assert strain_hexadecimal_code_dict['03-1057'] == '68-0-5F-7F-F7-60'
+
+
+def test_extract_sbcode():
+    global strain_sbcode_dict
+    strain_sbcode_dict = Methods.extract_sbcode(strain_reference_dep_path_dict=strain_reference_dep_path_dict,
+                                                strain_octal_code_dict=strain_octal_code_dict)
+    assert strain_sbcode_dict['03-1057'] == 'ND'
+    assert strain_sbcode_dict['13-1950'] == 'SB0145'
