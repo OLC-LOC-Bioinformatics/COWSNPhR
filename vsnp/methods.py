@@ -2,6 +2,7 @@
 from accessoryFunctions.accessoryFunctions import filer, make_path, relative_symlink, run_subprocess, write_to_logfile
 from Bio import SeqIO
 from glob import glob
+import vcf
 import os
 __author__ = 'adamkoziol'
 
@@ -401,10 +402,12 @@ class Methods(object):
         :param logfile: type STR: Absolute path to logfile basename
         :return: strain_bowtie2_index_dict: Dictionary of strain name: Absolute path to bowtie2 index
         :return: strain_reference_abs_path_dict: Dictionary of strain name: absolute path to reference file
+        :return: strain_reference_dep_path_dict: Dictionary of strain name: absolute path to reference dependency folder
         """
         # Initialise a dictionary to store the absolute path to the bowtie2 index and reference genome
         strain_bowtie2_index_dict = dict()
         strain_reference_abs_path_dict = dict()
+        strain_reference_dep_path_dict = dict()
         for strain_name, ref_link in reference_link_path_dict.items():
             # Set the absolute path, and strip off the file extension for use in the build call
             ref_abs_path = os.path.abspath(os.path.join(dependency_path, ref_link))
@@ -422,7 +425,8 @@ class Methods(object):
             # Populate the dictionaries
             strain_bowtie2_index_dict[strain_name] = base_name
             strain_reference_abs_path_dict[strain_name] = abs_ref_link
-        return strain_bowtie2_index_dict, strain_reference_abs_path_dict
+            strain_reference_dep_path_dict[strain_name] = os.path.dirname(abs_ref_link)
+        return strain_bowtie2_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict
 
     @staticmethod
     def bowtie2_map(strain_fastq_dict, strain_name_dict, strain_bowtie2_index_dict, threads, logfile):
@@ -652,7 +656,7 @@ class Methods(object):
         :param line: type STR: Current line from a qualimap report
         :return: Sanitised key: value pair
         """
-        # Split on ' = '
+        # Split lines on ' = '
         if ' = ' in line:
             key, value = line.split(' = ')
             # Replace occurrences of: "number of ", "'", and " " with empty strings
@@ -725,8 +729,9 @@ class Methods(object):
             freebayes_out_vcf = os.path.join(freebayes_out_dir, '{sn}.vcf'.format(sn=strain_name))
             # Create the system call to freebayes-parallel
             # Use the regions file to allow for parallelism
-            freebayes_cmd = 'freebayes-parallel {ref_regions} {threads} -E -1 -e 1 -u --strict-vcf ' \
-                            '-f {ref_genome} {sorted_bam} > {out_vcf}'\
+            # -E -1 -e 1  -u --report-monomorphic --gvcf --use-best-n-alleles 1
+            freebayes_cmd = 'freebayes-parallel {ref_regions} {threads} --strict-vcf ' \
+                            '--use-best-n-alleles 1 -f {ref_genome} {sorted_bam} > {out_vcf}'\
                 .format(ref_regions=ref_regions_file,
                         ref_genome=ref_genome,
                         threads=threads,
@@ -744,3 +749,246 @@ class Methods(object):
             # Populate the dictionary with the path to the .vcf file
             strain_vcf_dict[strain_name] = freebayes_out_vcf
         return strain_vcf_dict
+
+    @staticmethod
+    def parse_vcf(strain_vcf_dict):
+        """
+        Parse the .vcf file with the PyVCF module. Filter positions with QUAL < 150, and count the number of high
+        quality SNPs (QUAL >= 150, and reference length = 1 (not an indel))
+        :param strain_vcf_dict: type DICT: Dictionary of strain name: absolute path to .vcf file
+        :return: strain_num_high_quality_snps_dict: Dictionary of strain name: number of high quality SNPs
+        :return: strain_filtered_vcf_dict: Dictionary of strain name: absolute path to filtered .vcf file
+        """
+        # Initialise dictionaries to store the number of high quality SNPs, and the absolute path to the filtered
+        # .vcf file
+        strain_num_high_quality_snps_dict = dict()
+        strain_filtered_vcf_dict = dict()
+        for strain_name, vcf_file in strain_vcf_dict.items():
+            # Set the absolute path of the filtered .vcf file (replace the .vcf extension with a _filtered.vcf string)
+            filtered_vcf = vcf_file.replace('.vcf', '_filtered.vcf')
+            # Create the PyVCF 'Reader' object from the .vcf file
+            vcf_reader = vcf.Reader(open(vcf_file), 'r')
+            # Create a PyVCF 'Writer' object in which records with QUAL >= 150 are stored
+            vcf_writer = vcf.Writer(open(filtered_vcf, 'w'), vcf_reader)
+            # Initialise a count for the number of high quality SNPs
+            high_quality_snps = 0
+            # Iterate through all the records in the .vcf file
+            for record in vcf_reader:
+                # Only keep SNPs with QUAL values >= 150
+                if len(record.REF) == 1:
+                    #  Filter by QUAL >= 150
+                    if record.QUAL >= 150:
+                        # Increment the count of the number of high quality SNPs, and keep the record
+                        high_quality_snps += 1
+                        vcf_writer.write_record(record)
+                # Keep all indels
+                else:
+                    vcf_writer.write_record(record)
+            # Populate the dictionaries with the number of high quality SNPs, and the path to the filtered .vcf file
+            strain_num_high_quality_snps_dict[strain_name] = high_quality_snps
+            strain_filtered_vcf_dict[strain_name] = filtered_vcf
+        return strain_num_high_quality_snps_dict, strain_filtered_vcf_dict
+
+    @staticmethod
+    def bait_spoligo(strain_fastq_dict, strain_name_dict, spoligo_file, threads, logfile, kmer=25):
+        """
+        Use bbduk.sh to bait reads matching the spacer sequences. Output a file with the number of matches to each
+        spacer sequence
+        :param strain_fastq_dict: type DICT: Dictionary of strain name: list of FASTQ files
+        :param strain_name_dict: type DICT: Dictionary of strain name: strain-specific working folder
+        :param spoligo_file: type STR: Absolute path to FASTA-formatted file of spacer sequences
+        :param threads: type INT: Number of threads to request for the analyses
+        :param logfile: type STR: Absolute path to tha logfile basename
+        :param kmer: type INT: kmer size to use for read baiting. Default value of 25 is used, as the spacer sequences
+        are all 25 bp long
+        :return: strain_spoligo_stats_dict: Dictionary of strain name: absolute path to bbduk-created stats file
+        """
+        # Initialise a dictionary to store the absolute path to the bbduk-created stats file
+        strain_spoligo_stats_dict = dict()
+        for strain_name, fastq_files in strain_fastq_dict.items():
+            # Extract the strain-specific working directory from the dictionary
+            strain_folder = strain_name_dict[strain_name]
+            # Set the absolute path, and create a directory to store the spoligotyping outputs
+            spoligo_path = os.path.join(strain_folder, 'spoligotyping')
+            make_path(spoligo_path)
+            # Set the absolute path to the bbduk-outputted stats file
+            baited_spoligo_stats = os.path.join(spoligo_path, '{sn}_stats.txt'.format(sn=strain_name))
+            # Single-end reads are treated differently
+            if len(fastq_files) == 1:
+                # Create the system call to bbduk.sh. Use the desired kmer size. Set maskmiddle to False
+                # (middle base of a kmer is NOT treated as a wildcard)
+                bbduk_cmd = 'bbduk.sh ref={ref} in={in1} k={kmer} threads={threads} maskmiddle=f stats={stats_file}'\
+                    .format(ref=spoligo_file,
+                            in1=fastq_files[0],
+                            kmer=kmer,
+                            threads=threads,
+                            stats_file=baited_spoligo_stats)
+            else:
+                bbduk_cmd = 'bbduk.sh ref={ref} in={in1} in2={in2} k={kmer} threads={threads} ' \
+                            'maskmiddle=f stats={stats_file}'.format(ref=spoligo_file,
+                                                                     in1=fastq_files[0],
+                                                                     in2=fastq_files[1],
+                                                                     kmer=kmer,
+                                                                     threads=threads,
+                                                                     stats_file=baited_spoligo_stats)
+            # Run the system call if the stats file does not exist
+            if not os.path.isfile(baited_spoligo_stats):
+                out, err = run_subprocess(bbduk_cmd)
+                # Write STDOUT and STDERR to the logfile
+                write_to_logfile(out=out,
+                                 err=err,
+                                 logfile=logfile,
+                                 samplelog=os.path.join(strain_folder, 'log.out'),
+                                 sampleerr=os.path.join(strain_folder, 'log.err'))
+            # Populate the dictionary with the absolute path to the stats file
+            strain_spoligo_stats_dict[strain_name] = baited_spoligo_stats
+        return strain_spoligo_stats_dict
+
+    @staticmethod
+    def parse_spoligo(strain_spoligo_stats_dict):
+        """
+        Parse the bbduk-created spacer match stats file to create binary, octal, and hexadecimal code for the strain
+        :param strain_spoligo_stats_dict: type DICT: Dictionary of strain name: absolute path to stats file
+        :return: strain_binary_code_dict: Dictionary of strain name: string of presence/absence of all spacer sequences
+        :return: strain_octal_code_dict: Dictionary of strain name: string of octal code converted from binary string
+        :return: strain_hexadecimal_code_dict: Dictionary of strain name: string of hexadecimal code converted
+        from binary string
+        """
+        # Initialise dictionaries to store the calculated codes
+        strain_binary_code_dict = dict()
+        strain_octal_code_dict = dict()
+        strain_hexadecimal_code_dict = dict()
+        for strain_name, spoligo_stats_file in strain_spoligo_stats_dict.items():
+            # Initialise a dictionary to store the spacer counts
+            stats_dict = dict()
+            with open(spoligo_stats_file, 'r') as stats_file:
+                for line in stats_file:
+                    # Ignore all headers
+                    if '#Name' in line:
+                        for subline in stats_file:
+                            # Split the results on tabs into its constituent spacer, reads containing this spacer, and
+                            # the total percent of reads from the read set, which contain this spacer
+                            # e.g. spacer2	13	0.00325%
+                            spacer, reads, reads_percent = subline.rstrip().split('\t')
+                            # Populate the dictionary with the spacer name, and the number of reads
+                            stats_dict[spacer] = reads
+            # Convert the dictionary to a string of presence/absence for each spacer
+            binary_string = Methods.create_binary_code(stats_dict=stats_dict)
+            # Create the octal code string from the binary string
+            octal_string = Methods.binary_to_octal(binary_code=binary_string)
+            # Create the hexadecimal string from the binary string
+            hexadecimal_string = Methods.binary_to_hexadecimal(binary_code=binary_string)
+            # Populate the dictionaries with the appropriate variables
+            strain_binary_code_dict[strain_name] = binary_string
+            strain_octal_code_dict[strain_name] = octal_string
+            strain_hexadecimal_code_dict[strain_name] = hexadecimal_string
+        return strain_binary_code_dict, strain_octal_code_dict, strain_hexadecimal_code_dict
+
+    @staticmethod
+    def create_binary_code(stats_dict):
+        """
+        Create a binary string of presence/absence of each spacer sequence (1: present, 0: absent)
+        :param stats_dict: type DICT: Dictionary of spacer name: number of reads
+        :return: binary_string: A string of presence/absence for each of the 43 spacer sequences
+        """
+        # Initialise a string to store the calculated binary string
+        binary_string = str()
+        # There are 43 spacer sequences, named spacer1 - spacer43. Will create a list of 1:43
+        for i in range(1, 44):
+            # Use the iterator to create the current spacer name e.g. spacer + 1
+            spacer_name = 'spacer{num}'.format(num=i)
+            # If the spacer name is in the dictionary, count this spacer as present
+            if spacer_name in stats_dict:
+                binary_hits = '1'
+            # Otherwise, the spacer is absent
+            else:
+                binary_hits = '0'
+            # Add the present/absence result to the growing binary code string
+            binary_string += binary_hits
+        return binary_string
+
+    @staticmethod
+    def binary_to_octal(binary_code):
+        """
+        Convert a supplied binary string to an octal code
+        for example, 1101000000000010111111111111111101111100000 becomes 640013777767600
+        :param binary_code: type STR: 43 character binary string of spacer presence/absence
+        :return: octal_code: Converted octal string
+        """
+        # Initialise the string to store the octal code
+        octal_code = str()
+        # Iterate through the binary string in blocks of three (binary triplet)
+        # e.g. 1101000000000010111111111111111101111100000 treated as: 110 100 000 000 001 011... etc.
+        for i in range(0, len(binary_code), 3):
+            # Convert the current binary triplet to an integer using int() with base 2 (e.g. 110 becomes 6)
+            # Append the str() of the integer to the octal code string
+            octal_code += str(int(binary_code[i:i+3], 2))
+        return octal_code
+
+    @staticmethod
+    def binary_to_hexadecimal(binary_code):
+        """
+        Convert a supplied binary string to a hexadecimal code
+        for example, 1101000000000010111111111111111101111100000 becomes 68-0-5F-7F-F7-60
+        :param binary_code: type STR: 43 character binary string of spacer presence/absence
+        :return: hex_code: Converted hexadecimal string
+        """
+        # Initialise a string to store the hexadecimal string
+        hex_code = str()
+        # Iterate through the binary string in blocks of seven four times, and blocks of eight twice (the binary
+        # string is 43 characters long, yielding ranges of 0:7, 7:14, 14:21, 21:28, 28:36, 36:43
+        # e.g. 1101000000000010111111111111111101111100000 becomes 1101000 0000000 1011111 1111111 11110111 1100000
+        # These fragments are converted to hexadecimal:              0x68    0x0     0x5f    0x7f    0xf7     0x60
+        for i in range(0, len(binary_code), 7):
+            # The first four blocks are all treated the same
+            if i < 28:
+                # Convert the block of seven digits with to int(), base 2, and then to hexadecimal
+                hex_section = hex(int(binary_code[i:i+7], 2))
+                # Remove the '0x' hexadecimal designation, and convert the string to uppercase. Add a dash for
+                # formatting reasons. Append this string to the growing hex_code string
+                hex_code += str(hex_section.replace('0x', '').upper()) + '-'
+            # The penultimate block is eight characters long, so the range of the block is i: i+8
+            elif i < 35:
+                hex_section = hex(int(binary_code[i:i + 8], 2))
+                hex_code += (hex_section.replace('0x', '').upper()) + '-'
+            # The final block is also eight characters long, but additionally, since the previous block was longer than
+            # the step size, i must be incremented
+            else:
+                # Increment i to reflect the longer size of the previous block
+                i += 1
+                hex_section = hex(int(binary_code[i:i+8], 2))
+                hex_code += (hex_section.replace('0x', '').upper())
+                # Break the loop here, as it will attempt to iterate one more time, but will encounter an empty string
+                # due to the incrementing of i
+                break
+        return hex_code
+
+    @staticmethod
+    def extract_sbcode(strain_reference_dep_path_dict, strain_octal_code_dict):
+        """
+        Query the reference spoligotype_db.txt file using the calculated octal code to extract the sbcode
+        :param strain_reference_dep_path_dict: type DICT: Dictionary of strain name: path to reference dependency folder
+        :param strain_octal_code_dict: type DICT: Dictionary of strain name: calculated strain octal code
+        :return: strain_sbcode_dict: Dictionary of strain name: extracted sbcode
+        """
+        # Initialise the dictionary to store the extracted sbcode
+        strain_sbcode_dict = dict()
+        for strain_name, reference_abs_path in strain_reference_dep_path_dict.items():
+            # Extract the octal code from the dictionary
+            strain_octal_code = strain_octal_code_dict[strain_name]
+            # Set the absolute path of the spoligotype db file
+            spoligo_db_file = os.path.join(reference_abs_path, 'spoligotype_db.txt')
+            # Create a dictionary to store the octal code: sbcode pairs extracted from the file
+            spoligo_dict = dict()
+            if os.path.isfile(spoligo_db_file):
+                with open(spoligo_db_file, 'r') as spoligo_db:
+                    for line in spoligo_db:
+                        octal_code, sbcode, binary_code = line.split()
+                        spoligo_dict[octal_code] = sbcode
+            # Add the sbcode value for the strain-specific octal code key to the dictionary
+            if strain_octal_code in spoligo_dict:
+                strain_sbcode_dict[strain_name] = spoligo_dict[strain_octal_code]
+            # If the key is absent populate the dictionary with 'Not Detected' ('ND')
+            else:
+                strain_sbcode_dict[strain_name] = 'ND'
+        return strain_sbcode_dict
