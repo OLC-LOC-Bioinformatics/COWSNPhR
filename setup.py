@@ -4,7 +4,7 @@ __author__ = 'stuber, adamkoziol'
 
 setup(
     name="vsnpdev",
-    version="0.0.03",
+    version="0.0.04",
     packages=find_packages(),
     include_package_data=True,
     entry_points={
