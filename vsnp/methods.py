@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from accessoryFunctions.accessoryFunctions import filer, make_path, relative_symlink, run_subprocess, write_to_logfile
+from MLSTsippr.mlst import GeneSippr as MLSTSippr
 from Bio import SeqIO
 from glob import glob
 import vcf
@@ -391,7 +392,7 @@ class Methods(object):
         # Use the strain-specific best reference genome name to extract the relative symlink information
         for strain_name, best_ref in strain_best_ref_dict.items():
             reference_link_path_dict[strain_name] = reference_link_dict[best_ref]
-        return reference_link_path_dict
+        return reference_link_path_dict, reference_link_dict
 
     @staticmethod
     def bowtie2_build(reference_link_path_dict, dependency_path, logfile):
@@ -663,6 +664,11 @@ class Methods(object):
             key = key.replace('number of ', "").replace("'", "").title().replace(" ", "")
             # Remove commas
             value = value.replace(",", "").replace(" ", "").rstrip()
+        # Extract the coverage data at a 1X threshold from the report
+        elif 'coverageData >= 1X' in line:
+            data = line.split()
+            key = 'genome_coverage'
+            value = data[3]
         # If '=' is absent, we are not interested in this line. Set the key and value to None
         else:
             key, value = None, None
@@ -798,7 +804,7 @@ class Methods(object):
         :param strain_name_dict: type DICT: Dictionary of strain name: strain-specific working folder
         :param spoligo_file: type STR: Absolute path to FASTA-formatted file of spacer sequences
         :param threads: type INT: Number of threads to request for the analyses
-        :param logfile: type STR: Absolute path to tha logfile basename
+        :param logfile: type STR: Absolute path to the logfile basename
         :param kmer: type INT: kmer size to use for read baiting. Default value of 25 is used, as the spacer sequences
         are all 25 bp long
         :return: strain_spoligo_stats_dict: Dictionary of strain name: absolute path to bbduk-created stats file
@@ -992,3 +998,82 @@ class Methods(object):
             else:
                 strain_sbcode_dict[strain_name] = 'ND'
         return strain_sbcode_dict
+
+    @staticmethod
+    def brucella_mlst(seqpath, mlst_db_path, logfile):
+        """
+        Run MLST analyses on the strains
+        :param seqpath: type STR: Absolute path to folder containing FASTQ files
+        :param mlst_db_path: type STR: Absolute path to folder containing Brucella MLST database files
+        :param logfile: type STR: Absolute path to the logfile basename
+        """
+        # Set the system call to the MLST python package in sipprverse
+        mlst_cmd = 'python -m MLSTsippr.mlst -s {seqpath} -t {targetpath} -a mlst {seqpath}'\
+            .format(seqpath=seqpath,
+                    targetpath=mlst_db_path)
+        # Run the system call - don't worry about checking if there are outputs, the package will parse these reports
+        # rather than re-running the analyses
+        out, err = run_subprocess(mlst_cmd)
+        # Write STDOUT and STDERR to the logfile
+        write_to_logfile(out=out,
+                         err=err,
+                         logfile=logfile)
+
+    @staticmethod
+    def parse_mlst_report(strain_name_dict, mlst_report):
+        """
+        Parse the MLST report to create a dictionary with the calculated sequence type and the number of exact matches
+        per strain to the sequence type
+        :param strain_name_dict: type DICT: Dictionary of strain name: absolute path to strain working directory
+        :param mlst_report: type STR: Absolute path to MLST report
+        :return: strain_mlst_dict: Dictionary of strain name: sequence type and number of matches to the sequence type
+        """
+        # Initialise a dictionary to store the parsed MLST results
+        strain_mlst_dict = dict()
+        # Open the MLST report file
+        with open(mlst_report, 'r') as report:
+            # Skip the header line
+            next(report)
+            for line in report:
+                # Split the line on commas
+                data = line.rstrip().split(',')
+                # Extract the sequence type and the number of matches to the sequence type from the line. Populate the
+                # dictionary with these values
+                strain_mlst_dict[data[0]] = {
+                    'sequence_type': data[2],
+                    'matches': data[3],
+                }
+        # If the strain did not have MLST outputs, populate negative 'ND' values for the sequence type and number
+        # of matches
+        for strain in strain_name_dict:
+            # Only populate negative values for strains absent from the outputs
+            if strain not in strain_mlst_dict:
+                strain_mlst_dict[strain] = {
+                    'sequence_type': 'ND',
+                    'matches': 'ND',
+                }
+        return strain_mlst_dict
+
+    @staticmethod
+    def create_report(start, strain_species_dict, strain_best_ref_dict, strain_fastq_size_dict,
+                      strain_average_quality_dict, strain_qual_over_thirty_dict, strain_qualimap_outputs_dict):
+        print('')
+        for strain_name, strain_species in strain_species_dict.items():
+            best_ref = os.path.splitext(strain_best_ref_dict[strain_name])[0]
+            forward_size = '{:.2f}'.format(strain_fastq_size_dict[strain_name][0])
+            forward_avg_quality = '{:.2f}'.format(strain_average_quality_dict[strain_name][0])
+            forward_perc_reads_over_thirty = '{:.2f}'.format(strain_qual_over_thirty_dict[strain_name][0])
+            mapped_reads = strain_qualimap_outputs_dict[strain_name]['MappedReads'].split('(')[0]
+            genome_coverage = strain_qualimap_outputs_dict[strain_name]['genome_coverage']
+            avg_cov_depth = strain_qualimap_outputs_dict[strain_name]['MeanCoveragedata']
+            try:
+                reverse_size = '{:.2f}'.format(strain_fastq_size_dict[strain_name][1])
+                reverse_avg_quality = '{:.2f}'.format(strain_average_quality_dict[strain_name][1])
+                reverse_perc_reads_over_thirty = '{:.2f}'.format(strain_qual_over_thirty_dict[strain_name][1])
+            except IndexError:
+                reverse_size = 'ND'
+                reverse_avg_quality = 'ND'
+                reverse_perc_reads_over_thirty = 'ND'
+            print(start, strain_name, strain_species, best_ref, forward_size, reverse_size, forward_avg_quality,
+                  reverse_avg_quality, forward_perc_reads_over_thirty, reverse_perc_reads_over_thirty, mapped_reads,
+                  genome_coverage, avg_cov_depth)

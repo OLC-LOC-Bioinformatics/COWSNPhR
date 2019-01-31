@@ -4,6 +4,7 @@ from vsnp.methods import Methods
 from vsnp.vcf import VCF
 import multiprocessing
 import pytest
+import time
 import os
 __author__ = 'adamkoziol'
 
@@ -11,6 +12,8 @@ testpath = os.path.abspath(os.path.dirname(__file__))
 filepath = os.path.join(testpath, 'files')
 dependencypath = os.path.join(os.path.dirname(testpath), 'dependencies')
 threads = multiprocessing.cpu_count() - 1
+# Define the start time
+start = time.time()
 
 
 def test_invalid_path():
@@ -21,12 +24,12 @@ def test_invalid_path():
 
 def test_no_threads():
     with pytest.raises(TypeError):
-        assert VCF(path=testpath)
+        assert VCF(path=filepath)
 
 
 def test_valid_path():
     global vcf_object
-    vcf_object = VCF(path=testpath,
+    vcf_object = VCF(path=filepath,
                      threads=threads)
     assert vcf_object
 
@@ -86,17 +89,14 @@ def test_vcf_file_list_no_files():
 def test_vcf_file_list():
     global file_list
     file_list = Methods.file_list(path=filepath)
-    assert len(file_list) == 6
+    assert len(file_list) == 4
 
 
 def test_strain_dict():
     global strain_folder_dict
     strain_folder_dict = Methods.strain_list(fastq_files=file_list)
     for strain_folder, fastq_files in strain_folder_dict.items():
-        if os.path.basename(strain_folder) in ['14-2093', '13-1941']:
-            assert len(fastq_files) == 1
-        else:
-            assert len(fastq_files) == 2
+        assert len(fastq_files) == 2
 
 
 def test_strain_namer_no_input():
@@ -107,7 +107,7 @@ def test_strain_namer_no_input():
 def test_strain_namer_working():
     global strain_name_dict
     strain_name_dict = Methods.strain_namer(strain_folders=strain_folder_dict)
-    assert [strain for strain in strain_name_dict] == ['03-1057', '13-1941', '13-1950', '14-2093']
+    assert [strain for strain in strain_name_dict] == ['13-1950', 'B13-0234']
 
 
 def test_make_path():
@@ -126,12 +126,9 @@ def test_strain_linker():
     global strain_fastq_dict
     strain_fastq_dict = Methods.file_link(strain_folder_dict=strain_folder_dict,
                                           strain_name_dict=strain_name_dict)
-    assert [strain for strain in strain_fastq_dict] == ['03-1057', '13-1941', '13-1950', '14-2093']
+    assert [strain for strain in strain_fastq_dict] == ['13-1950', 'B13-0234']
     for strain_name, fastq_files in strain_fastq_dict.items():
-        if strain_name in ['14-2093', '13-1941']:
-            assert len(fastq_files) == 1
-        else:
-            assert len(fastq_files) == 2
+        assert len(fastq_files) == 2
         for symlink in fastq_files:
             assert os.path.islink(symlink)
 
@@ -152,13 +149,14 @@ def test_parse_reformat_quality():
     global strain_average_quality_dict, strain_qual_over_thirty_dict
     strain_average_quality_dict, strain_qual_over_thirty_dict = Methods.\
         parse_quality_histogram(strain_qhist_dict=strain_qhist_dict)
-    assert strain_average_quality_dict['03-1057'] == [34.742922778562175, 30.805370650837197]
+    assert strain_average_quality_dict['13-1950'] == [33.82559209616877, 28.64100810052621]
+    assert strain_qual_over_thirty_dict['13-1950'] == [84.5724480421427, 61.085547466494404]
 
 
 def test_parse_reformat_length():
     global strain_avg_read_lengths
     strain_avg_read_lengths = Methods.parse_length_histograms(strain_lhist_dict=strain_lhist_dict)
-    assert strain_avg_read_lengths['03-1057'] == 225.23133
+    assert strain_avg_read_lengths['13-1950'] == 230.9919625
 
 
 def test_file_size():
@@ -200,16 +198,16 @@ def test_mash_best_ref():
     strain_best_ref_dict, strain_ref_matches_dict, strain_species_dict = \
         Methods.mash_best_ref(mash_dist_dict=mash_dist_dict,
                               accession_species_dict=accession_species_dict)
-    assert strain_best_ref_dict['03-1057'] == 'NC_002945v4.fasta'
-    assert strain_ref_matches_dict['03-1057'] == 968
-    assert strain_species_dict['03-1057'] == 'af'
+    assert strain_best_ref_dict['13-1950'] == 'NC_002945v4.fasta'
+    assert strain_ref_matches_dict['13-1950'] == 916
+    assert strain_species_dict['13-1950'] == 'af'
 
 
 def test_reference_file_paths():
-    global reference_link_path_dict
-    reference_link_path_dict = Methods.reference_folder(strain_best_ref_dict=strain_best_ref_dict,
-                                                        dependency_path=dependencypath)
-    assert reference_link_path_dict['03-1057'] == 'mycobacterium/tbc/af2122/script_dependents/NC_002945v4.fasta'
+    global reference_link_path_dict, reference_link_dict
+    reference_link_path_dict, reference_link_dict = Methods.reference_folder(strain_best_ref_dict=strain_best_ref_dict,
+                                                                             dependency_path=dependencypath)
+    assert reference_link_path_dict['13-1950'] == 'mycobacterium/tbc/af2122/script_dependents/NC_002945v4.fasta'
 
 
 def test_bowtie2_build():
@@ -220,7 +218,7 @@ def test_bowtie2_build():
                               logfile=logfile)
     assert os.path.isfile(os.path.join(dependencypath, 'mycobacterium', 'tbc', 'af2122', 'script_dependents',
                                        'NC_002945v4.1.bt2'))
-    assert os.path.split(strain_bowtie2_index_dict['03-1057'])[-1] == 'NC_002945v4'
+    assert os.path.split(strain_bowtie2_index_dict['13-1950'])[-1] == 'NC_002945v4'
 
 
 def test_bowtie2_map():
@@ -251,15 +249,13 @@ def test_skesa_assembled_unmapped():
         strain_name_dict=strain_name_dict,
         threads=threads,
         logfile=logfile)
-    assert os.path.getsize(strain_skesa_output_fasta_dict['03-1057']) == 0
-    assert os.path.getsize(strain_skesa_output_fasta_dict['13-1941']) == 45462
+    assert os.path.getsize(strain_skesa_output_fasta_dict['13-1950']) == 0
 
 
 def test_number_unmapped_contigs():
     global strain_unmapped_contigs_dict
     strain_unmapped_contigs_dict = Methods.assembly_stats(strain_skesa_output_fasta_dict=strain_skesa_output_fasta_dict)
     assert strain_unmapped_contigs_dict['13-1950'] == 0
-    assert strain_unmapped_contigs_dict['13-1941'] == 37
 
 
 def test_samtools_index():
@@ -333,14 +329,43 @@ def test_spoligo_parse():
         strain_octal_code_dict, \
         strain_hexadecimal_code_dict = \
         Methods.parse_spoligo(strain_spoligo_stats_dict=strain_spoligo_stats_dict)
-    assert strain_binary_code_dict['03-1057'] == '1101000000000010111111111111111101111100000'
-    assert strain_octal_code_dict['03-1057'] == '640013777767600'
-    assert strain_hexadecimal_code_dict['03-1057'] == '68-0-5F-7F-F7-60'
+    assert strain_binary_code_dict['13-1950'] == '1101000000000010111111111111111111111100000'
+    assert strain_octal_code_dict['13-1950'] == '640013777777600'
+    assert strain_hexadecimal_code_dict['13-1950'] == '68-0-5F-7F-FF-60'
 
 
 def test_extract_sbcode():
     global strain_sbcode_dict
     strain_sbcode_dict = Methods.extract_sbcode(strain_reference_dep_path_dict=strain_reference_dep_path_dict,
                                                 strain_octal_code_dict=strain_octal_code_dict)
-    assert strain_sbcode_dict['03-1057'] == 'ND'
     assert strain_sbcode_dict['13-1950'] == 'SB0145'
+
+
+def test_brucella_mlst():
+    global mlst_report
+    Methods.brucella_mlst(seqpath=filepath,
+                          mlst_db_path=os.path.join(dependencypath, 'brucella', 'MLST'),
+                          logfile=logfile)
+    mlst_report = os.path.join(filepath, 'reports', 'mlst.csv')
+    assert os.path.getsize(mlst_report) > 100
+
+
+def test_mlst_parse():
+    global strain_mlst_dict
+    strain_mlst_dict = Methods.parse_mlst_report(strain_name_dict=strain_name_dict,
+                                                 mlst_report=mlst_report)
+    assert strain_mlst_dict['13-1950']['sequence_type'] == 'ND'
+    assert strain_mlst_dict['13-1950']['matches'] == 'ND'
+    assert strain_mlst_dict['B13-0234']['sequence_type'] == '14'
+    assert strain_mlst_dict['B13-0234']['matches'] == '9'
+
+
+def test_report_create():
+    Methods.create_report(start=start,
+                          strain_species_dict=strain_species_dict,
+                          strain_best_ref_dict=strain_best_ref_dict,
+                          strain_fastq_size_dict=strain_fastq_size_dict,
+                          strain_average_quality_dict=strain_average_quality_dict,
+                          strain_qual_over_thirty_dict=strain_qual_over_thirty_dict,
+                          strain_qualimap_outputs_dict=strain_qualimap_outputs_dict)
+
