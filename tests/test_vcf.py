@@ -2,18 +2,22 @@
 from accessoryFunctions.accessoryFunctions import filer, make_path
 from vsnp.methods import Methods
 from vsnp.vcf import VCF
+from datetime import datetime
 import multiprocessing
+from glob import glob
 import pytest
-import time
+import shutil
 import os
+
 __author__ = 'adamkoziol'
 
 testpath = os.path.abspath(os.path.dirname(__file__))
 filepath = os.path.join(testpath, 'files')
 dependencypath = os.path.join(os.path.dirname(testpath), 'dependencies')
+report_path = os.path.join(filepath, 'reports')
 threads = multiprocessing.cpu_count() - 1
 # Define the start time
-start = time.time()
+start_time = datetime.now()
 
 
 def test_invalid_path():
@@ -147,7 +151,7 @@ def test_reformat_quality():
 
 def test_parse_reformat_quality():
     global strain_average_quality_dict, strain_qual_over_thirty_dict
-    strain_average_quality_dict, strain_qual_over_thirty_dict = Methods.\
+    strain_average_quality_dict, strain_qual_over_thirty_dict = Methods. \
         parse_quality_histogram(strain_qhist_dict=strain_qhist_dict)
     assert strain_average_quality_dict['13-1950'] == [33.82559209616877, 28.64100810052621]
     assert strain_qual_over_thirty_dict['13-1950'] == [84.5724480421427, 61.085547466494404]
@@ -180,7 +184,7 @@ def test_mash_dist():
                                             strain_name_dict=strain_name_dict,
                                             fastq_sketch_dict=fastq_sketch_dict,
                                             ref_sketch_file=os.path.join(
-                                                  dependencypath, 'mash', 'vsnp_reference.msh'),
+                                                dependencypath, 'mash', 'vsnp_reference.msh'),
                                             logfile=logfile)
     for strain, tab_output in mash_dist_dict.items():
         assert os.path.isfile(tab_output)
@@ -189,7 +193,7 @@ def test_mash_dist():
 def test_mash_accession_species():
     global accession_species_dict
     accession_species_dict = Methods.parse_mash_accession_species(mash_species_file=os.path.join(
-                                                  dependencypath, 'mash', 'species_accessions.csv'))
+        dependencypath, 'mash', 'species_accessions.csv'))
     assert accession_species_dict['NC_002945v4.fasta'] == 'af'
 
 
@@ -326,8 +330,8 @@ def test_spoligo_bait():
 def test_spoligo_parse():
     global strain_binary_code_dict, strain_octal_code_dict, strain_hexadecimal_code_dict
     strain_binary_code_dict, \
-        strain_octal_code_dict, \
-        strain_hexadecimal_code_dict = \
+    strain_octal_code_dict, \
+    strain_hexadecimal_code_dict = \
         Methods.parse_spoligo(strain_spoligo_stats_dict=strain_spoligo_stats_dict)
     assert strain_binary_code_dict['13-1950'] == '1101000000000010111111111111111111111100000'
     assert strain_octal_code_dict['13-1950'] == '640013777777600'
@@ -361,11 +365,37 @@ def test_mlst_parse():
 
 
 def test_report_create():
-    Methods.create_report(start=start,
-                          strain_species_dict=strain_species_dict,
-                          strain_best_ref_dict=strain_best_ref_dict,
-                          strain_fastq_size_dict=strain_fastq_size_dict,
-                          strain_average_quality_dict=strain_average_quality_dict,
-                          strain_qual_over_thirty_dict=strain_qual_over_thirty_dict,
-                          strain_qualimap_outputs_dict=strain_qualimap_outputs_dict)
+    global vcf_report
+    vcf_report = Methods.create_vcf_report(
+        start_time=start_time,
+        strain_species_dict=strain_species_dict,
+        strain_best_ref_dict=strain_best_ref_dict,
+        strain_fastq_size_dict=strain_fastq_size_dict,
+        strain_average_quality_dict=strain_average_quality_dict,
+        strain_qual_over_thirty_dict=strain_qual_over_thirty_dict,
+        strain_qualimap_outputs_dict=strain_qualimap_outputs_dict,
+        strain_avg_read_lengths=strain_avg_read_lengths,
+        strain_unmapped_contigs_dict=strain_unmapped_contigs_dict,
+        strain_num_high_quality_snps_dict=strain_num_high_quality_snps_dict,
+        strain_mlst_dict=strain_mlst_dict,
+        strain_octal_code_dict=strain_octal_code_dict,
+        strain_sbcode_dict=strain_sbcode_dict,
+        strain_hexadecimal_code_dict=strain_hexadecimal_code_dict,
+        strain_binary_code_dict=strain_binary_code_dict,
+        report_path=report_path)
+    assert os.path.getsize(vcf_report) > 100
 
+
+def test_remove_logs():
+    logs = glob(os.path.join(filepath, '*.txt'))
+    for log in logs:
+        os.remove(log)
+
+
+def test_remove_reports():
+    shutil.rmtree(report_path)
+
+
+def test_remove_working_dir():
+    for strain_name, working_dir in strain_name_dict.items():
+        shutil.rmtree(working_dir)

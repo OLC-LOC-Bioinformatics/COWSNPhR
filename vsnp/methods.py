@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 from accessoryFunctions.accessoryFunctions import filer, make_path, relative_symlink, run_subprocess, write_to_logfile
-from MLSTsippr.mlst import GeneSippr as MLSTSippr
 from Bio import SeqIO
 from glob import glob
+import xlsxwriter
 import vcf
 import os
+
 __author__ = 'adamkoziol'
 
 
 class Methods(object):
-
     @staticmethod
     def file_list(path):
         """
@@ -121,7 +121,7 @@ class Methods(object):
                                                                                             count=count))
                 # Create the system call to reformat.sh. qchist: count of bases with each quality value, lhist:
                 # read length histogram
-                reformat_cmd = 'reformat.sh in={fastq} qchist={qchist} lhist={lhist}'\
+                reformat_cmd = 'reformat.sh in={fastq} qchist={qchist} lhist={lhist}' \
                     .format(fastq=fastq_file,
                             qchist=qual_histo,
                             lhist=length_histo)
@@ -246,7 +246,7 @@ class Methods(object):
             for fastq_file in fastq_files:
                 # Use os.path.getsize to get the filesize in bytes. Convert this to megabytes by dividing this number
                 # 1024*1024.0 (.0 is included, so that the divisor will be a float)
-                file_size = os.path.getsize(fastq_file) / (1024*1024.0)
+                file_size = os.path.getsize(fastq_file) / (1024 * 1024.0)
                 strain_fastq_size_dict[strain_name].append(file_size)
         return strain_fastq_size_dict
 
@@ -271,7 +271,7 @@ class Methods(object):
             # -p requests the number of desired threads, -m sets the minimum copies of each k-mer required to pass
             # noise filter for reads to 2 (ignores single copy kmers), - indicates that MASH should use stdin
             # -o is the absolute path to the sketch output file
-            mash_sketch_command = 'cat {fastq} | mash sketch -m 2 - -o {output_file}'\
+            mash_sketch_command = 'cat {fastq} | mash sketch -m 2 - -o {output_file}' \
                 .format(fastq=' '.join(fastq_files),
                         output_file=fastq_sketch_no_ext)
             # Only make the system call if the output sketch file doesn't already exist
@@ -497,7 +497,7 @@ class Methods(object):
             # Set the absolute path of the unmapped reads FASTQ file
             unmapped_reads = os.path.join(strain_folder, '{sn}_unmapped.fastq.gz'.format(sn=strain_name))
             # Create the system call to samtools bam2fq. Use -f4 to specify unmapped reads. Pipe output to gzip
-            unmapped_cmd = 'samtools bam2fq -@ {threads} -f4 {sorted_bam} | gzip > {unmapped_reads}'\
+            unmapped_cmd = 'samtools bam2fq -@ {threads} -f4 {sorted_bam} | gzip > {unmapped_reads}' \
                 .format(threads=threads,
                         sorted_bam=sorted_bam,
                         unmapped_reads=unmapped_reads)
@@ -555,11 +555,23 @@ class Methods(object):
 
     @staticmethod
     def assembly_stats(strain_skesa_output_fasta_dict):
+        """
+        Use SeqIO to count the number of contigs that could be created from the unmapped reads
+        :param strain_skesa_output_fasta_dict: type DICT: Dictionary of strain name: absolute path to skesa-created
+        contigs FASTA file
+        :return: strain_unmapped_contigs_dict: Dictionary of strain name: number of contigs in skesa-created contigs
+        FASTA file
+        """
+        # Create a dictionary to store the number of contigs in the FASTA file
         strain_unmapped_contigs_dict = dict()
         for strain_name, assembly_file in strain_skesa_output_fasta_dict.items():
+            # Initialise the strain-specific number of contigs as 0
             strain_unmapped_contigs_dict[strain_name] = 0
+            # Check to see if the file is empty before using SeqIO to parse it
             if os.path.getsize(assembly_file) > 0:
+                # Use SeqIO to iterate through the FASTA file.
                 for _ in SeqIO.parse(assembly_file, 'fasta'):
+                    # Increment the number of contigs for each sequence encountered
                     strain_unmapped_contigs_dict[strain_name] += 1
         return strain_unmapped_contigs_dict
 
@@ -608,7 +620,7 @@ class Methods(object):
             # Set the absolute path of the qualimap report to be parsed
             qualimap_report = os.path.join(qualimap_output_dir, 'genome_results.txt')
             # Create the qualimap system call
-            qualimap_cmd = 'qualimap bamqc -bam {sorted_bam} -outdir {qualimap_out_dir}'\
+            qualimap_cmd = 'qualimap bamqc -bam {sorted_bam} -outdir {qualimap_out_dir}' \
                 .format(sorted_bam=sorted_bam,
                         qualimap_out_dir=qualimap_output_dir)
             # Run the system call if the qualimap report does not exist
@@ -692,7 +704,7 @@ class Methods(object):
             # Set the absolute path of the regions file
             regions_file = ref_genome + '.regions'
             # Create the system call to fasta_generate_regions.py (part of the freebayes package)
-            regions_cmd = 'fasta_generate_regions.py {ref_genome}.fai {size} > {regions_file}'\
+            regions_cmd = 'fasta_generate_regions.py {ref_genome}.fai {size} > {regions_file}' \
                 .format(ref_genome=ref_genome,
                         size=size,
                         regions_file=regions_file)
@@ -737,7 +749,7 @@ class Methods(object):
             # Use the regions file to allow for parallelism
             # -E -1 -e 1  -u --report-monomorphic --gvcf --use-best-n-alleles 1
             freebayes_cmd = 'freebayes-parallel {ref_regions} {threads} --strict-vcf ' \
-                            '--use-best-n-alleles 1 -f {ref_genome} {sorted_bam} > {out_vcf}'\
+                            '--use-best-n-alleles 1 -f {ref_genome} {sorted_bam} > {out_vcf}' \
                 .format(ref_regions=ref_regions_file,
                         ref_genome=ref_genome,
                         threads=threads,
@@ -823,7 +835,7 @@ class Methods(object):
             if len(fastq_files) == 1:
                 # Create the system call to bbduk.sh. Use the desired kmer size. Set maskmiddle to False
                 # (middle base of a kmer is NOT treated as a wildcard)
-                bbduk_cmd = 'bbduk.sh ref={ref} in={in1} k={kmer} threads={threads} maskmiddle=f stats={stats_file}'\
+                bbduk_cmd = 'bbduk.sh ref={ref} in={in1} k={kmer} threads={threads} maskmiddle=f stats={stats_file}' \
                     .format(ref=spoligo_file,
                             in1=fastq_files[0],
                             kmer=kmer,
@@ -928,7 +940,7 @@ class Methods(object):
         for i in range(0, len(binary_code), 3):
             # Convert the current binary triplet to an integer using int() with base 2 (e.g. 110 becomes 6)
             # Append the str() of the integer to the octal code string
-            octal_code += str(int(binary_code[i:i+3], 2))
+            octal_code += str(int(binary_code[i:i + 3], 2))
         return octal_code
 
     @staticmethod
@@ -949,7 +961,7 @@ class Methods(object):
             # The first four blocks are all treated the same
             if i < 28:
                 # Convert the block of seven digits with to int(), base 2, and then to hexadecimal
-                hex_section = hex(int(binary_code[i:i+7], 2))
+                hex_section = hex(int(binary_code[i:i + 7], 2))
                 # Remove the '0x' hexadecimal designation, and convert the string to uppercase. Add a dash for
                 # formatting reasons. Append this string to the growing hex_code string
                 hex_code += str(hex_section.replace('0x', '').upper()) + '-'
@@ -962,7 +974,7 @@ class Methods(object):
             else:
                 # Increment i to reflect the longer size of the previous block
                 i += 1
-                hex_section = hex(int(binary_code[i:i+8], 2))
+                hex_section = hex(int(binary_code[i:i + 8], 2))
                 hex_code += (hex_section.replace('0x', '').upper())
                 # Break the loop here, as it will attempt to iterate one more time, but will encounter an empty string
                 # due to the incrementing of i
@@ -1008,7 +1020,7 @@ class Methods(object):
         :param logfile: type STR: Absolute path to the logfile basename
         """
         # Set the system call to the MLST python package in sipprverse
-        mlst_cmd = 'python -m MLSTsippr.mlst -s {seqpath} -t {targetpath} -a mlst {seqpath}'\
+        mlst_cmd = 'python -m MLSTsippr.mlst -s {seqpath} -t {targetpath} -a mlst {seqpath}' \
             .format(seqpath=seqpath,
                     targetpath=mlst_db_path)
         # Run the system call - don't worry about checking if there are outputs, the package will parse these reports
@@ -1055,25 +1067,114 @@ class Methods(object):
         return strain_mlst_dict
 
     @staticmethod
-    def create_report(start, strain_species_dict, strain_best_ref_dict, strain_fastq_size_dict,
-                      strain_average_quality_dict, strain_qual_over_thirty_dict, strain_qualimap_outputs_dict):
-        print('')
+    def create_vcf_report(start_time, strain_species_dict, strain_best_ref_dict, strain_fastq_size_dict,
+                          strain_average_quality_dict, strain_qual_over_thirty_dict, strain_qualimap_outputs_dict,
+                          strain_avg_read_lengths, strain_unmapped_contigs_dict, strain_num_high_quality_snps_dict,
+                          strain_mlst_dict, strain_octal_code_dict, strain_sbcode_dict, strain_hexadecimal_code_dict,
+                          strain_binary_code_dict, report_path):
+        """
+        Create an Excel report of the vcf outputs
+        :param start_time: type datetime.now(): Datetime object
+        :param strain_species_dict: type DICT: Dictionary of strain name: species code
+        :param strain_best_ref_dict: type DICT: Dictionary of strain name: closest reference genome
+        :param strain_fastq_size_dict: type DICT: Dictionary of strain name: list of sizes of FASTQ files in megabytes
+        :param strain_average_quality_dict: type DICT: Dictionary of strain name: list of read set-specific average
+        quality scores
+        :param strain_qual_over_thirty_dict: type DICT: Dictionary of strain name: list of read set-specific percentage
+        of reads with a Phred quality-score greater or equal to 30
+        :param strain_qualimap_outputs_dict: type DICT: Dictionary of strain name: dictionary of key: value from
+        qualimap report
+        :param strain_avg_read_lengths: type DICT: Dictionary of strain name: float of calculated strain-specific
+        average read length
+        :param strain_unmapped_contigs_dict: type DICT: Dictionary of strain name: number of contigs in skesa-created
+        contigs FASTA file
+        :param strain_num_high_quality_snps_dict: type DICT: Dictionary of strain name: number of high quality SNPs
+        :param strain_mlst_dict: type DICT: Dictionary of strain name: sequence type and number of matches to the
+        sequence type
+        :param strain_octal_code_dict: type DICT: Dictionary of strain name: calculated strain octal code
+        :param strain_sbcode_dict: type DICT: Dictionary of strain name: extracted sbcode
+        :param strain_hexadecimal_code_dict: type DICT: Dictionary of strain name: string of hexadecimal code converted
+        from binary string
+        :param strain_binary_code_dict: type DICT: Dictionary of strain name: string of presence/absence of all spacer
+        sequences
+        :param report_path: type STR: Absolute path to path in which reports are to be created
+        :return: vcf_report: Absolute path to the Excel report
+        """
+        # Create a date string consistent with classic vSNP
+        start = '{:%Y-%m-%d_%H-%M-%S}'.format(start_time)
+        # Initialise a string to store the absolute path to the Excel report
+        vcf_report = os.path.join(os.path.join(report_path, 'stat_alignment_summary_{start}.xlsx'
+                                               .format(start=start)))
+        # Set the list of the headers
+        header_list = ['time_stamp', 'sample_name', 'species', 'reference_sequence_name', 'R1size', 'R2size',
+                       'Q_ave_R1', 'Q_ave_R2', 'Q30_R1', 'Q30_R2', 'allbam_mapped_reads', 'genome_coverage',
+                       'ave_coverage', 'ave_read_length', 'unmapped_reads', 'unmapped_assembled_contigs',
+                       'good_snp_count', 'mlst_type', 'octalcode', 'sbcode', 'hexadecimal_code', 'binarycode']
+        # Create a workbook to store the report using xlsxwriter.
+        workbook = xlsxwriter.Workbook(vcf_report)
+        # New worksheet to store the data
+        worksheet = workbook.add_worksheet()
+        # Add a bold format for header cells. Using a monotype font size 10
+        bold = workbook.add_format({'bold': True, 'font_name': 'Courier New', 'font_size': 10})
+        # Format for data cells. Monotype, size 10, top vertically justified
+        courier = workbook.add_format({'font_name': 'Courier New', 'font_size': 10})
+        courier.set_align('top')
+        # Initialise the position within the worksheet to be (0,0)
+        row = 0
+        # Set the column to zero
+        col = 0
+        # Write the header to the spreadsheet
+        for header in header_list:
+            worksheet.write(row, col, header, bold)
+            col += 1
         for strain_name, strain_species in strain_species_dict.items():
+            # Increment the row and reset the column to zero in preparation of writing results
+            row += 1
+            col = 0
+            # Extract all the required entries from the dictionaries
             best_ref = os.path.splitext(strain_best_ref_dict[strain_name])[0]
+            # Set all the floats to have two decimal places
             forward_size = '{:.2f}'.format(strain_fastq_size_dict[strain_name][0])
             forward_avg_quality = '{:.2f}'.format(strain_average_quality_dict[strain_name][0])
-            forward_perc_reads_over_thirty = '{:.2f}'.format(strain_qual_over_thirty_dict[strain_name][0])
+            forward_perc_reads_over_thirty = '{:.2f}%'.format(strain_qual_over_thirty_dict[strain_name][0])
             mapped_reads = strain_qualimap_outputs_dict[strain_name]['MappedReads'].split('(')[0]
             genome_coverage = strain_qualimap_outputs_dict[strain_name]['genome_coverage']
             avg_cov_depth = strain_qualimap_outputs_dict[strain_name]['MeanCoveragedata']
+            avg_read_length = '{:.2f}'.format(strain_avg_read_lengths[strain_name])
+            # Subtract the number of mapped reads from the total number of reads to determine the number of
+            # unmapped reads
+            unmapped_reads = int(strain_qualimap_outputs_dict[strain_name]['Reads']) - int(mapped_reads)
+            num_unmapped_contigs = strain_unmapped_contigs_dict[strain_name]
+            high_quality_snps = strain_num_high_quality_snps_dict[strain_name]
+            ml_seq_type = strain_mlst_dict[strain_name]['sequence_type']
+            octal_code = strain_octal_code_dict[strain_name]
+            sbcode = strain_sbcode_dict[strain_name]
+            hex_code = strain_hexadecimal_code_dict[strain_name]
+            binary_code = strain_binary_code_dict[strain_name]
+            # Brucella will not have a 'real' octal code. Find this string and replace it with 'ND'. Set
+            # the hex_code and binary codes to for this Brucella strain to 'ND'
+            octal_code = octal_code if octal_code != '000000000000000' else 'ND'
+            hex_code = hex_code if octal_code != 'ND' else 'ND'
+            binary_code = binary_code if octal_code != 'ND' else 'ND'
+            # If there are no reverse reads, populate the variables with 'ND'
             try:
                 reverse_size = '{:.2f}'.format(strain_fastq_size_dict[strain_name][1])
                 reverse_avg_quality = '{:.2f}'.format(strain_average_quality_dict[strain_name][1])
-                reverse_perc_reads_over_thirty = '{:.2f}'.format(strain_qual_over_thirty_dict[strain_name][1])
+                reverse_perc_reads_over_thirty = '{:.2f}%'.format(strain_qual_over_thirty_dict[strain_name][1])
             except IndexError:
                 reverse_size = 'ND'
                 reverse_avg_quality = 'ND'
                 reverse_perc_reads_over_thirty = 'ND'
-            print(start, strain_name, strain_species, best_ref, forward_size, reverse_size, forward_avg_quality,
-                  reverse_avg_quality, forward_perc_reads_over_thirty, reverse_perc_reads_over_thirty, mapped_reads,
-                  genome_coverage, avg_cov_depth)
+            # Populate the list with the required data
+            data_list = [start, strain_name, strain_species, best_ref, forward_size, reverse_size, forward_avg_quality,
+                         reverse_avg_quality, forward_perc_reads_over_thirty, reverse_perc_reads_over_thirty,
+                         mapped_reads,
+                         genome_coverage, avg_cov_depth, avg_read_length, unmapped_reads, num_unmapped_contigs,
+                         high_quality_snps, ml_seq_type, octal_code, sbcode, hex_code, binary_code]
+            # Write out the data to the spreadsheet
+            for results in data_list:
+                worksheet.write(row, col, results, courier)
+                col += 1
+        # Close the workbook
+        workbook.close()
+        return vcf_report
