@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from accessoryFunctions.accessoryFunctions import modify_usage_error, SetupLogging
-from vsnp.vcf import VCF
+from vsnp.vcf_run import VCF
 import multiprocessing
 from time import time
 import click
@@ -85,10 +85,10 @@ def vsnp(**kwargs):
     """
     Full vSNP pipeline
     """
-    vcf_object = VCF(path=kwargs['path'],
-                     threads=kwargs['threads'],
-                     debug=kwargs['debug'])
-    vcf_object.main()
+    vsnp_object = VCF(path=kwargs['path'],
+                      threads=kwargs['threads'],
+                      debug=kwargs['debug'])
+    vsnp_object.main()
 
 
 @group.command()
@@ -98,7 +98,10 @@ def vcf(**kwargs):
     """
     VCF creation component of vSNP pipeline
     """
-    pass
+    vcf_object = VCF(path=kwargs['path'],
+                     threads=kwargs['threads'],
+                     debug=kwargs['debug'])
+    vcf_object.main()
 
 
 @group.command()

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from accessoryFunctions.accessoryFunctions import filer, make_path
-from vsnp.methods import Methods
-from vsnp.vcf import VCF
+from vsnp.vcf_methods import Methods
+from vsnp.vcf_run import VCF
 from datetime import datetime
 import multiprocessing
 from glob import glob
@@ -12,7 +12,7 @@ import os
 __author__ = 'adamkoziol'
 
 testpath = os.path.abspath(os.path.dirname(__file__))
-filepath = os.path.join(testpath, 'files')
+filepath = os.path.join(testpath, 'files', 'fastq')
 dependencypath = os.path.join(os.path.dirname(testpath), 'dependencies')
 report_path = os.path.join(filepath, 'reports')
 threads = multiprocessing.cpu_count() - 1
@@ -313,6 +313,15 @@ def test_parse_vcf():
     assert strain_num_high_quality_snps_dict['13-1950'] == 466
 
 
+def test_link_vcf_files():
+    global vcf_path
+    vcf_path = os.path.join(filepath, 'vcf_files')
+    Methods.copy_vcf_files(strain_filtered_vcf_dict=strain_filtered_vcf_dict,
+                           vcf_path=vcf_path)
+    assert os.path.isdir(vcf_path)
+    assert len(glob(os.path.join(vcf_path, '*.vcf'))) == 2
+
+
 def test_spoligo_bait():
     global strain_spoligo_stats_dict
     strain_spoligo_stats_dict = Methods.bait_spoligo(strain_fastq_dict=strain_fastq_dict,
@@ -394,6 +403,10 @@ def test_remove_logs():
 
 def test_remove_reports():
     shutil.rmtree(report_path)
+
+
+def test_remove_vcf_path():
+    shutil.rmtree(vcf_path)
 
 
 def test_remove_working_dir():
