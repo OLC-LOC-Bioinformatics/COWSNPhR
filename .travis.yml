@@ -14,4 +14,4 @@ before_install:
 
 
 script:
-  - python -m pytest
+  - python -m pytest -s -v
