@@ -345,11 +345,12 @@ def test_copy_test_vcf_files():
         # Create the working directory if necessary
         make_path(freebayes_out_dir)
         # Set the name of the output .vcf file
-        freebayes_out_vcf = os.path.join(freebayes_out_dir, '{sn}.vcf'.format(sn=strain_name))
+        vcf_base_name = '{sn}.vcf'.format(sn=strain_name)
+        freebayes_out_vcf = os.path.join(freebayes_out_dir, vcf_base_name)
         # Don't try to copy the file if the original exists
         if not os.path.isfile(freebayes_out_vcf):
             for vcf_file in vcf_files:
-                if strain_name in vcf_file:
+                if os.path.basename(vcf_file) == vcf_base_name:
                     shutil.copyfile(vcf_file, freebayes_out_vcf)
         # Update the dictionary
         strain_vcf_dict[strain_name] = freebayes_out_vcf
@@ -359,7 +360,7 @@ def test_copy_test_vcf_files():
 def test_parse_vcf():
     global strain_num_high_quality_snps_dict, strain_filtered_vcf_dict
     strain_num_high_quality_snps_dict, strain_filtered_vcf_dict = VCFMethods.parse_vcf(strain_vcf_dict=strain_vcf_dict)
-    assert strain_num_high_quality_snps_dict['13-1950'] == 466
+    assert strain_num_high_quality_snps_dict['13-1941'] == 327
 
 
 def test_copy_vcf_files():
