@@ -212,6 +212,7 @@ elif vcf_check:
             malformed = malformed + list(mal)
     malformed = [x for x in malformed if x] # remove blanks
     print("done fixing")
+    print(malformed)
     arg_options['malformed'] = malformed
 
     if not arg_options['species']:

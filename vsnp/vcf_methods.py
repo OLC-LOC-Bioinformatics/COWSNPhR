@@ -819,11 +819,8 @@ class Methods(object):
         make_path(vcf_path)
         for strain_name, vcf_file in strain_filtered_vcf_dict.items():
             vcf_file_name = os.path.basename(vcf_file)
-            try:
-                shutil.copyfile(src=vcf_file,
-                                dst=os.path.join(vcf_path, vcf_file_name))
-            except FileExistsError:
-                pass
+            shutil.copyfile(src=vcf_file,
+                            dst=os.path.join(vcf_path, vcf_file_name))
 
     @staticmethod
     def bait_spoligo(strain_fastq_dict, strain_name_dict, spoligo_file, threads, logfile, kmer=25):
@@ -852,25 +849,27 @@ class Methods(object):
             # Single-end reads are treated differently
             if len(fastq_files) == 1:
                 # Create the system call to bbduk.sh. Use the desired kmer size. Set maskmiddle to False
-                # (middle base of a kmer is NOT treated as a wildcard)
-                bbduk_cmd = 'bbduk.sh ref={ref} in={in1} k={kmer} hdist=3 threads={threads} maskmiddle=f ' \
-                            'stats={stats_file}'.format(ref=spoligo_file,
+                # (middle base of a kmer is NOT treated as a wildcard). Allow one mismatch
+                bait_cmd = 'dedupe.sh in={in1} out=stdout.fq | bbduk.sh ref={ref} in=stdin.fq int=f k={kmer} ' \
+                           'hdist=1 threads={threads} maskmiddle=f ' \
+                           'stats={stats_file}'.format(ref=spoligo_file,
+                                                       in1=fastq_files[0],
+                                                       kmer=kmer,
+                                                       threads=threads,
+                                                       stats_file=baited_spoligo_stats)
+            else:
+                bait_cmd = 'dedupe.sh in={in1} in2={in2} out=stdout.fq | bbduk.sh ref={ref} in=stdin.fq ' \
+                           'int=t k={kmer} threads={threads} ' \
+                           'maskmiddle=f hdist=1 stats={stats_file}' \
+                    .format(ref=spoligo_file,
                             in1=fastq_files[0],
+                            in2=fastq_files[1],
                             kmer=kmer,
                             threads=threads,
                             stats_file=baited_spoligo_stats)
-            else:
-                bbduk_cmd = 'bbduk.sh ref={ref} in={in1} in2={in2} k={kmer} threads={threads} ' \
-                            'maskmiddle=f hdist=3 stats={stats_file}'\
-                    .format(ref=spoligo_file,
-                                                                     in1=fastq_files[0],
-                                                                     in2=fastq_files[1],
-                                                                     kmer=kmer,
-                                                                     threads=threads,
-                                                                     stats_file=baited_spoligo_stats)
             # Run the system call if the stats file does not exist
             if not os.path.isfile(baited_spoligo_stats):
-                out, err = run_subprocess(bbduk_cmd)
+                out, err = run_subprocess(bait_cmd)
                 # Write STDOUT and STDERR to the logfile
                 write_to_logfile(out=out,
                                  err=err,
@@ -907,9 +906,8 @@ class Methods(object):
                             # the total percent of reads from the read set, which contain this spacer
                             # e.g. spacer2	13	0.00325%
                             spacer, reads, reads_percent = subline.rstrip().split('\t')
-                            if int(reads) > 1:
-                                # Populate the dictionary with the spacer name, and the number of reads
-                                stats_dict[spacer] = reads
+                            # Populate the dictionary with the spacer name, and the number of reads
+                            stats_dict[spacer] = reads
             # Convert the dictionary to a string of presence/absence for each spacer
             binary_string = Methods.create_binary_code(stats_dict=stats_dict)
             # Create the octal code string from the binary string

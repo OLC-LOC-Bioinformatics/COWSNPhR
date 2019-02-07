@@ -20,6 +20,11 @@ threads = multiprocessing.cpu_count() - 1
 start_time = datetime.now()
 
 
+def test_import_vsnp():
+    with pytest.raises(SystemExit):
+        import vsnp.vSNP
+
+
 def test_invalid_path():
     with pytest.raises(AssertionError):
         assert VCF(path='not_a_real_path',
@@ -36,6 +41,11 @@ def test_valid_path():
     vcf_object = VCF(path=filepath,
                      threads=threads)
     assert vcf_object
+
+
+def test_invalid_tilde_path():
+    VCF(path='~',
+        threads=threads)
 
 
 def test_empty_filer():
@@ -93,14 +103,17 @@ def test_vcf_file_list_no_files():
 def test_vcf_file_list():
     global file_list
     file_list = Methods.file_list(path=filepath)
-    assert len(file_list) == 4
+    assert len(file_list) == 5
 
 
 def test_strain_dict():
     global strain_folder_dict
     strain_folder_dict = Methods.strain_list(fastq_files=file_list)
     for strain_folder, fastq_files in strain_folder_dict.items():
-        assert len(fastq_files) == 2
+        if '13-1941' in strain_folder:
+            assert len(fastq_files) == 1
+        else:
+            assert len(fastq_files) == 2
 
 
 def test_strain_namer_no_input():
@@ -111,7 +124,7 @@ def test_strain_namer_no_input():
 def test_strain_namer_working():
     global strain_name_dict
     strain_name_dict = Methods.strain_namer(strain_folders=strain_folder_dict)
-    assert [strain for strain in strain_name_dict] == ['13-1950', 'B13-0234']
+    assert [strain for strain in strain_name_dict] == ['13-1941', '13-1950', 'B13-0234']
 
 
 def test_make_path():
@@ -130,9 +143,12 @@ def test_strain_linker():
     global strain_fastq_dict
     strain_fastq_dict = Methods.file_link(strain_folder_dict=strain_folder_dict,
                                           strain_name_dict=strain_name_dict)
-    assert [strain for strain in strain_fastq_dict] == ['13-1950', 'B13-0234']
+    assert [strain for strain in strain_fastq_dict] == ['13-1941', '13-1950', 'B13-0234']
     for strain_name, fastq_files in strain_fastq_dict.items():
-        assert len(fastq_files) == 2
+        if strain_name == '13-1941':
+            assert len(fastq_files) == 1
+        else:
+            assert len(fastq_files) == 2
         for symlink in fastq_files:
             assert os.path.islink(symlink)
 
@@ -313,13 +329,13 @@ def test_parse_vcf():
     assert strain_num_high_quality_snps_dict['13-1950'] == 466
 
 
-def test_link_vcf_files():
+def test_copy_vcf_files():
     global vcf_path
     vcf_path = os.path.join(filepath, 'vcf_files')
     Methods.copy_vcf_files(strain_filtered_vcf_dict=strain_filtered_vcf_dict,
                            vcf_path=vcf_path)
     assert os.path.isdir(vcf_path)
-    assert len(glob(os.path.join(vcf_path, '*.vcf'))) == 2
+    assert len(glob(os.path.join(vcf_path, '*.vcf'))) == 3
 
 
 def test_spoligo_bait():
@@ -339,8 +355,8 @@ def test_spoligo_bait():
 def test_spoligo_parse():
     global strain_binary_code_dict, strain_octal_code_dict, strain_hexadecimal_code_dict
     strain_binary_code_dict, \
-    strain_octal_code_dict, \
-    strain_hexadecimal_code_dict = \
+        strain_octal_code_dict, \
+        strain_hexadecimal_code_dict = \
         Methods.parse_spoligo(strain_spoligo_stats_dict=strain_spoligo_stats_dict)
     assert strain_binary_code_dict['13-1950'] == '1101000000000010111111111111111111111100000'
     assert strain_octal_code_dict['13-1950'] == '640013777777600'
@@ -393,6 +409,33 @@ def test_report_create():
         strain_binary_code_dict=strain_binary_code_dict,
         report_path=report_path)
     assert os.path.getsize(vcf_report) > 100
+
+
+def test_vcf_run():
+    global vcf_object
+    vcf_object = VCF(path=filepath,
+                     threads=threads)
+    vcf_object.main()
+
+
+def test_remove_bt2_indexes():
+    for strain_name, ref_link in reference_link_path_dict.items():
+        # Set the absolute path, and strip off the file extension for use in the build call
+        ref_abs_path = os.path.dirname(os.path.abspath(os.path.join(dependencypath, ref_link)))
+        bt2_files = glob(os.path.join(ref_abs_path, '*.bt2'))
+        for bt2_index in bt2_files:
+            os.remove(bt2_index)
+        bt2_files = glob(os.path.join(ref_abs_path, '*.bt2'))
+        assert not bt2_files
+
+
+def test_remove_regions_file():
+    for strain_name, ref_genome in strain_reference_abs_path_dict.items():
+        # Set the absolute path of the regions file
+        regions_file = ref_genome + '.regions'
+        if os.path.isfile(regions_file):
+            os.remove(regions_file)
+        assert os.path.isfile(regions_file) is False
 
 
 def test_remove_logs():
