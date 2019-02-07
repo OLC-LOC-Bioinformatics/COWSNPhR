@@ -219,9 +219,6 @@ class VCF(object):
         # Initialise class variables
         self.threads = threads
         self.report_path = os.path.join(self.path, 'reports')
-        # make_path(self.report_path)
-        # assert os.path.isdir(self.report_path), 'Could not create report path as requested: {rp}' \
-        #     .format(rp=self.report_path)
         # Extract the path of the folder containing this script
         self.scriptpath = os.path.abspath(os.path.dirname(__file__))
         # Use the script path to set the absolute path of the dependencies folder

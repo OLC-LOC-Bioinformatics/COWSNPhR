@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 from accessoryFunctions.accessoryFunctions import modify_usage_error, SetupLogging
 from vsnp.vsnp_vcf_run import VCF
+from vsnp.vsnp_tree_run import VSNPTree
 import multiprocessing
 from time import time
 import click
 import sys
+import os
 
 __author__ = 'adamkoziol'
 __version__ = '0.0.1'
@@ -85,10 +87,14 @@ def vsnp(**kwargs):
     """
     Full vSNP pipeline
     """
-    vsnp_object = VCF(path=kwargs['path'],
-                      threads=kwargs['threads'],
-                      debug=kwargs['debug'])
-    vsnp_object.main()
+    vsnp_vcf = VCF(path=kwargs['path'],
+                   threads=kwargs['threads'],
+                   debug=kwargs['debug'])
+    vsnp_vcf.main()
+    vsnp_tree = VSNPTree(path=os.path.join(kwargs['path'], 'vcf_files'),
+                         threads=kwargs['threads'],
+                         debug=kwargs['debug'])
+    vsnp_tree.main()
 
 
 @group.command()
@@ -98,10 +104,10 @@ def vcf(**kwargs):
     """
     VCF creation component of vSNP pipeline
     """
-    vcf_object = VCF(path=kwargs['path'],
-                     threads=kwargs['threads'],
-                     debug=kwargs['debug'])
-    vcf_object.main()
+    vsnp_vcf = VCF(path=kwargs['path'],
+                   threads=kwargs['threads'],
+                   debug=kwargs['debug'])
+    vsnp_vcf.main()
 
 
 @group.command()
@@ -111,7 +117,10 @@ def tree(**kwargs):
     """
     Phylogenetic tree creation
     """
-    tree_object = ''
+    vsnp_tree = VSNPTree(path=kwargs['path'],
+                         threads=kwargs['threads'],
+                         debug=kwargs['debug'])
+    vsnp_tree.main()
 
 
 # Define the list of acceptable sub-programs

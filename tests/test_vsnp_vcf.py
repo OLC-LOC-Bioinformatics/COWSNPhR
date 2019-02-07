@@ -37,7 +37,6 @@ def test_no_threads():
 
 
 def test_valid_path():
-    global vcf_object
     vcf_object = VCF(path=filepath,
                      threads=threads)
     assert vcf_object
@@ -315,8 +314,13 @@ def test_regions():
 
 
 def test_freebayes():
+    """
+    Run FreeBayes on a single strain
+    """
     global strain_vcf_dict
-    strain_vcf_dict = VCFMethods.freebayes(strain_sorted_bam_dict=strain_sorted_bam_dict,
+    reduced_strain_sorted_bam_dict = dict()
+    reduced_strain_sorted_bam_dict['13-1950'] = strain_sorted_bam_dict['13-1950']
+    strain_vcf_dict = VCFMethods.freebayes(strain_sorted_bam_dict=reduced_strain_sorted_bam_dict,
                                            strain_name_dict=strain_name_dict,
                                            strain_reference_abs_path_dict=strain_reference_abs_path_dict,
                                            strain_ref_regions_dict=strain_ref_regions_dict,
@@ -324,6 +328,32 @@ def test_freebayes():
                                            logfile=logfile)
     for strain_name, vcf_file in strain_vcf_dict.items():
         assert os.path.getsize(vcf_file) > 10000
+
+
+def test_copy_test_vcf_files():
+    """
+    Copy VCF files from test folder to supplement the lone FreeBayes-created VCF file. Populate the strain_vcf_dict
+    dictionary with these VCF files
+    """
+    # Set the absolute path of the test folder containing the VCF files
+    vcf_test_path = os.path.join(testpath, 'files', 'vcf')
+    # Create a list of all the VCF files
+    vcf_files = glob(os.path.join(vcf_test_path, '*.vcf'))
+    for strain_name, strain_folder in strain_name_dict.items():
+        # Set the absolute path of the destination for the VCF file
+        freebayes_out_dir = os.path.join(strain_folder, 'freebayes')
+        # Create the working directory if necessary
+        make_path(freebayes_out_dir)
+        # Set the name of the output .vcf file
+        freebayes_out_vcf = os.path.join(freebayes_out_dir, '{sn}.vcf'.format(sn=strain_name))
+        # Don't try to copy the file if the original exists
+        if not os.path.isfile(freebayes_out_vcf):
+            for vcf_file in vcf_files:
+                if strain_name in vcf_file:
+                    shutil.copyfile(vcf_file, freebayes_out_vcf)
+        # Update the dictionary
+        strain_vcf_dict[strain_name] = freebayes_out_vcf
+        assert os.path.isfile(freebayes_out_vcf)
 
 
 def test_parse_vcf():
@@ -415,7 +445,6 @@ def test_report_create():
 
 
 def test_vcf_run():
-    global vcf_object
     vcf_object = VCF(path=filepath,
                      threads=threads)
     vcf_object.main()
