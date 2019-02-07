@@ -319,7 +319,7 @@ def test_freebayes():
     """
     global strain_vcf_dict
     reduced_strain_sorted_bam_dict = dict()
-    reduced_strain_sorted_bam_dict['13-1950'] = strain_sorted_bam_dict['13-1950']
+    reduced_strain_sorted_bam_dict['13-1941'] = strain_sorted_bam_dict['13-1941']
     strain_vcf_dict = VCFMethods.freebayes(strain_sorted_bam_dict=reduced_strain_sorted_bam_dict,
                                            strain_name_dict=strain_name_dict,
                                            strain_reference_abs_path_dict=strain_reference_abs_path_dict,
