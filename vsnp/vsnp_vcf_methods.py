@@ -10,7 +10,7 @@ import os
 __author__ = 'adamkoziol'
 
 
-class Methods(object):
+class VCFMethods(object):
     @staticmethod
     def file_list(path):
         """
@@ -652,7 +652,7 @@ class Methods(object):
             with open(qualimap_report, 'r') as report:
                 for line in report:
                     # Sanitise the keys and values using self.analyze
-                    key, value = Methods.analyze(line)
+                    key, value = VCFMethods.analyze(line)
                     # If the keys and values exist, enter them into the dictionary
                     if (key, value) != (None, None):
                         # Populate the dictionary with the sanitised key: value pair. Strip of the 'X' from the depth
@@ -909,11 +909,11 @@ class Methods(object):
                             # Populate the dictionary with the spacer name, and the number of reads
                             stats_dict[spacer] = reads
             # Convert the dictionary to a string of presence/absence for each spacer
-            binary_string = Methods.create_binary_code(stats_dict=stats_dict)
+            binary_string = VCFMethods.create_binary_code(stats_dict=stats_dict)
             # Create the octal code string from the binary string
-            octal_string = Methods.binary_to_octal(binary_code=binary_string)
+            octal_string = VCFMethods.binary_to_octal(binary_code=binary_string)
             # Create the hexadecimal string from the binary string
-            hexadecimal_string = Methods.binary_to_hexadecimal(binary_code=binary_string)
+            hexadecimal_string = VCFMethods.binary_to_hexadecimal(binary_code=binary_string)
             # Populate the dictionaries with the appropriate variables
             strain_binary_code_dict[strain_name] = binary_string
             strain_octal_code_dict[strain_name] = octal_string

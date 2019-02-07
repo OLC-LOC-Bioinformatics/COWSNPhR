@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from accessoryFunctions.accessoryFunctions import modify_usage_error, SetupLogging
-from vsnp.vcf_run import VCF
+from vsnp.vsnp_vcf_run import VCF
 import multiprocessing
 from time import time
 import click
@@ -111,7 +111,7 @@ def tree(**kwargs):
     """
     Phylogenetic tree creation
     """
-    pass
+    tree_object = ''
 
 
 # Define the list of acceptable sub-programs
