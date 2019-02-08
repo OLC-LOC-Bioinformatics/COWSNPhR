@@ -367,9 +367,10 @@ class VCFMethods(object):
             # Split the total of matching hashes from the total number of hashes
             matching_hashes = int(matching_hashes.split('/')[0])
             # Populate the dictionaries appropriately
-            strain_best_ref_dict[strain_name] = best_ref
-            strain_ref_matches_dict[strain_name] = matching_hashes
-            strain_species_dict[strain_name] = accession_species_dict[best_ref]
+            if matching_hashes >= 500:
+                strain_best_ref_dict[strain_name] = best_ref
+                strain_ref_matches_dict[strain_name] = matching_hashes
+                strain_species_dict[strain_name] = accession_species_dict[best_ref]
         return strain_best_ref_dict, strain_ref_matches_dict, strain_species_dict
 
     @staticmethod
@@ -447,37 +448,40 @@ class VCFMethods(object):
         # Initialise a dictionary to store the absolute path of the sorted BAM files
         strain_sorted_bam_dict = dict()
         for strain_name, fastq_files in strain_fastq_dict.items():
-            # Extract the required variables from the appropriate dictionaries
-            strain_folder = strain_name_dict[strain_name]
-            reference_index = strain_bowtie2_index_dict[strain_name]
-            abs_ref_link = reference_index + '.fasta'
-            # Set the absolute path of the sorted BAM file
-            sorted_bam = os.path.join(strain_folder, '{sn}_sorted.bam'.format(sn=strain_name))
-            # Compound mapping command: bowtie2 (with read groups enabled: --rg-id  and --rg flags)|
-            # samtools view (-h: include headers, -b: out BAM, -T: target file)
-            # samtools rmdup to remove duplicate reads
-            # samtools sort
-            map_cmd = 'bowtie2 --rg-id {sn} --rg SM:{sn} --rg PL:ILLUMINA --rg PI:250 -x {ref_index} ' \
-                      '-U {fastq} -p {threads} | ' \
-                      'samtools view -@ {threads} -h -bT {abs_ref_link} - | ' \
-                      'samtools rmdup - -S - | ' \
-                      'samtools sort - -@ {threads} -o {sorted_bam}'.format(sn=strain_name,
-                                                                            ref_index=reference_index,
-                                                                            fastq=','.join(fastq_files),
-                                                                            threads=threads,
-                                                                            abs_ref_link=abs_ref_link,
-                                                                            sorted_bam=sorted_bam)
-            # Only run the system call if the sorted BAM file doesn't already exist
-            if not os.path.isfile(sorted_bam):
-                out, err = run_subprocess(map_cmd)
-                # Write STDOUT and STDERR to the logfile
-                write_to_logfile(out=out,
-                                 err=err,
-                                 logfile=logfile,
-                                 samplelog=os.path.join(strain_folder, 'log.out'),
-                                 sampleerr=os.path.join(strain_folder, 'log.err'))
-            # Populate the dictionary with the absolute path to the sorted BAM file
-            strain_sorted_bam_dict[strain_name] = sorted_bam
+            try:
+                # Extract the required variables from the appropriate dictionaries
+                strain_folder = strain_name_dict[strain_name]
+                reference_index = strain_bowtie2_index_dict[strain_name]
+                abs_ref_link = reference_index + '.fasta'
+                # Set the absolute path of the sorted BAM file
+                sorted_bam = os.path.join(strain_folder, '{sn}_sorted.bam'.format(sn=strain_name))
+                # Compound mapping command: bowtie2 (with read groups enabled: --rg-id  and --rg flags)|
+                # samtools view (-h: include headers, -b: out BAM, -T: target file)
+                # samtools rmdup to remove duplicate reads
+                # samtools sort
+                map_cmd = 'bowtie2 --rg-id {sn} --rg SM:{sn} --rg PL:ILLUMINA --rg PI:250 -x {ref_index} ' \
+                          '-U {fastq} -p {threads} | ' \
+                          'samtools view -@ {threads} -h -bT {abs_ref_link} - | ' \
+                          'samtools rmdup - -S - | ' \
+                          'samtools sort - -@ {threads} -o {sorted_bam}'.format(sn=strain_name,
+                                                                                ref_index=reference_index,
+                                                                                fastq=','.join(fastq_files),
+                                                                                threads=threads,
+                                                                                abs_ref_link=abs_ref_link,
+                                                                                sorted_bam=sorted_bam)
+                # Only run the system call if the sorted BAM file doesn't already exist
+                if not os.path.isfile(sorted_bam):
+                    out, err = run_subprocess(map_cmd)
+                    # Write STDOUT and STDERR to the logfile
+                    write_to_logfile(out=out,
+                                     err=err,
+                                     logfile=logfile,
+                                     samplelog=os.path.join(strain_folder, 'log.out'),
+                                     sampleerr=os.path.join(strain_folder, 'log.err'))
+                # Populate the dictionary with the absolute path to the sorted BAM file
+                strain_sorted_bam_dict[strain_name] = sorted_bam
+            except KeyError:
+                pass
         return strain_sorted_bam_dict
 
     @staticmethod
@@ -765,8 +769,9 @@ class VCFMethods(object):
                                  logfile=logfile,
                                  samplelog=os.path.join(strain_folder, 'log.out'),
                                  sampleerr=os.path.join(strain_folder, 'log.err'))
-            # Populate the dictionary with the path to the .vcf file
-            strain_vcf_dict[strain_name] = freebayes_out_vcf
+            if os.path.isfile(freebayes_out_vcf):
+                # Populate the dictionary with the path to the .vcf file
+                strain_vcf_dict[strain_name] = freebayes_out_vcf
         return strain_vcf_dict
 
     @staticmethod
@@ -783,29 +788,32 @@ class VCFMethods(object):
         strain_num_high_quality_snps_dict = dict()
         strain_filtered_vcf_dict = dict()
         for strain_name, vcf_file in strain_vcf_dict.items():
-            # Set the absolute path of the filtered .vcf file (replace the .vcf extension with a _filtered.vcf string)
-            filtered_vcf = vcf_file.replace('.vcf', '_filtered.vcf')
-            # Create the PyVCF 'Reader' object from the .vcf file
-            vcf_reader = vcf.Reader(open(vcf_file), 'r')
-            # Create a PyVCF 'Writer' object in which records with QUAL >= 150 are stored
-            vcf_writer = vcf.Writer(open(filtered_vcf, 'w'), vcf_reader)
-            # Initialise a count for the number of high quality SNPs
-            high_quality_snps = 0
-            # Iterate through all the records in the .vcf file
-            for record in vcf_reader:
-                # Only keep SNPs with QUAL values >= 150
-                if len(record.REF) == 1:
-                    #  Filter by QUAL >= 150
-                    if record.QUAL >= 150:
-                        # Increment the count of the number of high quality SNPs, and keep the record
-                        high_quality_snps += 1
+            try:
+                # Set the absolute path of the filtered .vcf file (replace the .vcf extension with _filtered.vcf)
+                filtered_vcf = vcf_file.replace('.vcf', '_filtered.vcf')
+                # Create the PyVCF 'Reader' object from the .vcf file
+                vcf_reader = vcf.Reader(open(vcf_file), 'r')
+                # Create a PyVCF 'Writer' object in which records with QUAL >= 150 are stored
+                vcf_writer = vcf.Writer(open(filtered_vcf, 'w'), vcf_reader)
+                # Initialise a count for the number of high quality SNPs
+                high_quality_snps = 0
+                # Iterate through all the records in the .vcf file
+                for record in vcf_reader:
+                    # Only keep SNPs with QUAL values >= 150
+                    if len(record.REF) == 1:
+                        #  Filter by QUAL >= 150
+                        if record.QUAL >= 150:
+                            # Increment the count of the number of high quality SNPs, and keep the record
+                            high_quality_snps += 1
+                            vcf_writer.write_record(record)
+                    # Keep all indels
+                    else:
                         vcf_writer.write_record(record)
-                # Keep all indels
-                else:
-                    vcf_writer.write_record(record)
-            # Populate the dictionaries with the number of high quality SNPs, and the path to the filtered .vcf file
-            strain_num_high_quality_snps_dict[strain_name] = high_quality_snps
-            strain_filtered_vcf_dict[strain_name] = filtered_vcf
+                # Populate the dictionaries with the number of high quality SNPs, and the path to the filtered .vcf file
+                strain_num_high_quality_snps_dict[strain_name] = high_quality_snps
+                strain_filtered_vcf_dict[strain_name] = filtered_vcf
+            except FileNotFoundError:
+                pass
         return strain_num_high_quality_snps_dict, strain_filtered_vcf_dict
 
     @staticmethod
@@ -819,8 +827,9 @@ class VCFMethods(object):
         make_path(vcf_path)
         for strain_name, vcf_file in strain_filtered_vcf_dict.items():
             vcf_file_name = os.path.basename(vcf_file)
-            shutil.copyfile(src=vcf_file,
-                            dst=os.path.join(vcf_path, vcf_file_name))
+            if os.path.isfile(vcf_file):
+                shutil.copyfile(src=vcf_file,
+                                dst=os.path.join(vcf_path, vcf_file_name))
 
     @staticmethod
     def bait_spoligo(strain_fastq_dict, strain_name_dict, spoligo_file, threads, logfile, kmer=25):
@@ -1145,38 +1154,57 @@ class VCFMethods(object):
         for header in header_list:
             worksheet.write(row, col, header, bold)
             col += 1
-        for strain_name, strain_species in strain_species_dict.items():
+        for strain_name, fastq_sizes in strain_fastq_size_dict.items():
             # Increment the row and reset the column to zero in preparation of writing results
             row += 1
             col = 0
             # Extract all the required entries from the dictionaries
-            best_ref = os.path.splitext(strain_best_ref_dict[strain_name])[0]
+
             # Set all the floats to have two decimal places
-            forward_size = '{:.2f}'.format(strain_fastq_size_dict[strain_name][0])
+            forward_size = '{:.2f}'.format(fastq_sizes[0])
             forward_avg_quality = '{:.2f}'.format(strain_average_quality_dict[strain_name][0])
             forward_perc_reads_over_thirty = '{:.2f}%'.format(strain_qual_over_thirty_dict[strain_name][0])
-            mapped_reads = strain_qualimap_outputs_dict[strain_name]['MappedReads'].split('(')[0]
-            genome_coverage = strain_qualimap_outputs_dict[strain_name]['genome_coverage']
-            avg_cov_depth = '{:.2f}'.format(float(strain_qualimap_outputs_dict[strain_name]['MeanCoveragedata']))
-            avg_read_length = '{:.2f}'.format(strain_avg_read_lengths[strain_name])
-            # Subtract the number of mapped reads from the total number of reads to determine the number of
-            # unmapped reads
-            unmapped_reads = int(strain_qualimap_outputs_dict[strain_name]['Reads']) - int(mapped_reads)
-            num_unmapped_contigs = strain_unmapped_contigs_dict[strain_name]
-            high_quality_snps = strain_num_high_quality_snps_dict[strain_name]
-            ml_seq_type = strain_mlst_dict[strain_name]['sequence_type']
-            octal_code = strain_octal_code_dict[strain_name]
-            sbcode = strain_sbcode_dict[strain_name]
-            hex_code = strain_hexadecimal_code_dict[strain_name]
-            binary_code = strain_binary_code_dict[strain_name]
-            # Brucella will not have a 'real' octal code. Find this string and replace it with 'ND'. Set
-            # the hex_code and binary codes to for this Brucella strain to 'ND'
-            octal_code = octal_code if octal_code != '000000000000000' else 'ND'
-            hex_code = hex_code if octal_code != 'ND' else 'ND'
-            binary_code = binary_code if octal_code != 'ND' else 'ND'
+            # Allow strains that do not have a match to be added to the report
+            try:
+                strain_species = strain_species_dict[strain_name]
+                best_ref = os.path.splitext(strain_best_ref_dict[strain_name])[0]
+                genome_coverage = strain_qualimap_outputs_dict[strain_name]['genome_coverage']
+                avg_cov_depth = '{:.2f}'.format(float(strain_qualimap_outputs_dict[strain_name]['MeanCoveragedata']))
+                avg_read_length = '{:.2f}'.format(strain_avg_read_lengths[strain_name])
+                mapped_reads = strain_qualimap_outputs_dict[strain_name]['MappedReads'].split('(')[0]
+                # Subtract the number of mapped reads from the total number of reads to determine the number of
+                # unmapped reads
+                unmapped_reads = int(strain_qualimap_outputs_dict[strain_name]['Reads']) - int(mapped_reads)
+                num_unmapped_contigs = strain_unmapped_contigs_dict[strain_name]
+                high_quality_snps = strain_num_high_quality_snps_dict[strain_name]
+                ml_seq_type = strain_mlst_dict[strain_name]['sequence_type']
+                octal_code = strain_octal_code_dict[strain_name]
+                sbcode = strain_sbcode_dict[strain_name]
+                hex_code = strain_hexadecimal_code_dict[strain_name]
+                binary_code = strain_binary_code_dict[strain_name]
+                # Brucella will not have a 'real' octal code. Find this string and replace it with 'ND'. Set
+                # the hex_code and binary codes to for this Brucella strain to 'ND'
+                octal_code = octal_code if octal_code != '000000000000000' else 'ND'
+                hex_code = hex_code if octal_code != 'ND' else 'ND'
+                binary_code = binary_code if octal_code != 'ND' else 'ND'
+            except KeyError:
+                strain_species = 'ND'
+                best_ref = 'ND'
+                genome_coverage = 'ND'
+                avg_cov_depth = 'ND'
+                avg_read_length = 'ND'
+                mapped_reads = 'ND'
+                unmapped_reads = 'ND'
+                num_unmapped_contigs = 'ND'
+                high_quality_snps = 'ND'
+                ml_seq_type = 'ND'
+                octal_code = 'ND'
+                sbcode = 'ND'
+                hex_code = 'ND'
+                binary_code = 'ND'
             # If there are no reverse reads, populate the variables with 'ND'
             try:
-                reverse_size = '{:.2f}'.format(strain_fastq_size_dict[strain_name][1])
+                reverse_size = '{:.2f}'.format(fastq_sizes[1])
                 reverse_avg_quality = '{:.2f}'.format(strain_average_quality_dict[strain_name][1])
                 reverse_perc_reads_over_thirty = '{:.2f}%'.format(strain_qual_over_thirty_dict[strain_name][1])
             except IndexError:

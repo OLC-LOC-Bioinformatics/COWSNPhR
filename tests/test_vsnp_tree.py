@@ -118,9 +118,39 @@ def test_strain_linker():
 
 
 def test_symlink():
-    for strain_name, vcf_list in strain_vcf_dict.items():
-        for vcf_link in vcf_list:
-            assert os.path.islink(vcf_link)
+    for strain_name, vcf_link in strain_vcf_dict.items():
+        assert os.path.islink(vcf_link)
+
+
+def test_accession_species():
+    global accession_species_dict
+    accession_species_dict = VSNPTreeMethods.parse_accession_species(ref_species_file=os.path.join(
+        dependencypath, 'mash', 'species_accessions.csv'))
+    assert accession_species_dict['NC_002945v4.fasta'] == 'af'
+
+
+def test_vcf_load():
+    global strain_vcf_object_dict, strain_best_ref_dict
+    strain_vcf_object_dict, strain_best_ref_dict = VSNPTreeMethods.load_vcf(strain_vcf_dict=strain_vcf_dict)
+    for strain_name, best_ref in strain_best_ref_dict.items():
+        assert best_ref in ['NC_002945.4', 'NC_017250.1', 'NC_017251.1']
+
+
+def test_determine_ref_species():
+    global strain_species_dict, strain_best_ref_dict
+    strain_species_dict, strain_best_ref_dict = VSNPTreeMethods.determine_ref_species(strain_best_ref_dict=strain_best_ref_dict,
+                                                                accession_species_dict=accession_species_dict)
+    assert strain_species_dict['13-1941'] == 'af'
+    assert strain_species_dict['B13-0234'] == 'suis1'
+    assert strain_best_ref_dict['13-1941'] == 'NC_002945v4.fasta'
+
+
+def test_reference_path():
+    global reference_link_path_dict, reference_link_dict
+    reference_link_path_dict, \
+        reference_link_dict = VSNPTreeMethods.reference_folder(strain_best_ref_dict=strain_best_ref_dict,
+                                                               dependency_path=dependencypath)
+    assert reference_link_path_dict['13-1950'] == 'mycobacterium/tbc/af2122/script_dependents/NC_002945v4.fasta'
 
 
 def test_vsn_tree_run():

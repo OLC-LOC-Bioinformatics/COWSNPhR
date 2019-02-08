@@ -102,7 +102,7 @@ def test_vcf_file_list_no_files():
 def test_vcf_file_list():
     global file_list
     file_list = VCFMethods.file_list(path=filepath)
-    assert len(file_list) == 5
+    assert len(file_list) == 7
 
 
 def test_strain_dict():
@@ -123,7 +123,7 @@ def test_strain_namer_no_input():
 def test_strain_namer_working():
     global strain_name_dict
     strain_name_dict = VCFMethods.strain_namer(strain_folders=strain_folder_dict)
-    assert [strain for strain in strain_name_dict] == ['13-1941', '13-1950', 'B13-0234']
+    assert [strain for strain in strain_name_dict] == ['13-1941', '13-1950', 'B13-0234', 'NC_002695']
 
 
 def test_make_path():
@@ -142,7 +142,7 @@ def test_strain_linker():
     global strain_fastq_dict
     strain_fastq_dict = VCFMethods.file_link(strain_folder_dict=strain_folder_dict,
                                              strain_name_dict=strain_name_dict)
-    assert [strain for strain in strain_fastq_dict] == ['13-1941', '13-1950', 'B13-0234']
+    assert [strain for strain in strain_fastq_dict] == ['13-1941', '13-1950', 'B13-0234', 'NC_002695']
     for strain_name, fastq_files in strain_fastq_dict.items():
         if strain_name == '13-1941':
             assert len(fastq_files) == 1
@@ -354,7 +354,8 @@ def test_copy_test_vcf_files():
                     shutil.copyfile(vcf_file, freebayes_out_vcf)
         # Update the dictionary
         strain_vcf_dict[strain_name] = freebayes_out_vcf
-        assert os.path.isfile(freebayes_out_vcf)
+        if strain_name != 'NC_002695':
+            assert os.path.isfile(freebayes_out_vcf)
 
 
 def test_parse_vcf():

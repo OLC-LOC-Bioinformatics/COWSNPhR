@@ -70,7 +70,7 @@ class VSNPTreeMethods(object):
         Create folders for each strain. Create relative symlinks to the original VCF files from within the folder
         :param strain_folder_dict: type DICT: Dictionary of strain folder path: VCF files
         :param strain_name_dict: type DICT: Dictionary of base strain name: strain folder path
-        :return: strain_vcf_dict: Dictionary of strain name: list of absolute path(s) of VCF file
+        :return: strain_vcf_dict: Dictionary of strain name: absolute path of VCF file
         """
         # Initialise a dictionary to store strain name: absolute path to VCF file links
         strain_vcf_dict = dict()
@@ -85,8 +85,94 @@ class VSNPTreeMethods(object):
                                             output_dir=strain_folder,
                                             export_output=True)
             # Add the absolute path of the symlink to the dictionary
-            try:
-                strain_vcf_dict[strain_name].append(symlink_path)
-            except KeyError:
-                strain_vcf_dict[strain_name] = [symlink_path]
+            strain_vcf_dict[strain_name] = symlink_path
         return strain_vcf_dict
+
+    @staticmethod
+    def parse_accession_species(ref_species_file):
+        """
+        Parse the reference genus accession: species code .csv file included in the mash dependencies path
+        :param ref_species_file: type STR: Absolute path to file containing reference file name: species code
+        :return: accession_species_dict: Dictionary of reference accession: species code
+        """
+        # Initialise a dictionary to store the species code
+        accession_species_dict = dict()
+        with open(ref_species_file, 'r') as species_file:
+            for line in species_file:
+                # Extract the accession and the species code pair from the line
+                accession, species = line.rstrip().split(',')
+                # Populate the dictionary with the accession: species pair
+                accession_species_dict[accession] = species
+        return accession_species_dict
+
+    @staticmethod
+    def load_vcf(strain_vcf_dict):
+        """
+        Using vcf.Reader(), load the VCF files. Store the Reader objects, as well as the extracted reference sequence,
+        and its associated species code in dictionaries
+        :param strain_vcf_dict: type DICT: Dictionary of strain name: list of absolute path to VCF file
+        :return: strain_vcf_object_dict: Dictionary of strain name: VCF Reader object
+        :return: strain_best_ref_dict: Dictionary of strain name: extracted reference sequence
+        """
+        # Initialise dictionaries to store the Reader objects, and the name of the reference sequence
+        strain_vcf_object_dict = dict()
+        strain_best_ref_dict = dict()
+        for strain_name, vcf_file in strain_vcf_dict.items():
+            # Create the PyVCF 'Reader' object from the .vcf file
+            vcf_reader = vcf.Reader(open(vcf_file), 'r')
+            # Iterate through all the records in the .vcf file
+            for record in vcf_reader:
+                # Extract the reference sequence stored as the .CHROM attribute
+                strain_best_ref_dict[strain_name] = record.CHROM
+                # Don't need to iterate through all the records once the reference sequence is known
+                break
+            # Add the Reader object to the dictionary
+            strain_vcf_object_dict[strain_name] = vcf_reader
+        return strain_vcf_object_dict, strain_best_ref_dict
+
+    @staticmethod
+    def determine_ref_species(strain_best_ref_dict, accession_species_dict):
+        """
+        Query the dictionary of reference file: species codes with the extracted strain-specific reference genome
+        :param strain_best_ref_dict: type DICT: Dictionary of strain name: extracted reference sequence
+        :param accession_species_dict: type DICT: Dictionary of reference accession: species code
+        :return: strain_species_dict: Dictionary of strain name: species code
+        :return: strain_best_ref_dict: Updated dictionary of strain name: best reference file
+        """
+        # Initialise a dictionary to store the extracted species code
+        strain_species_dict = dict()
+        for strain_name, best_ref in strain_best_ref_dict.items():
+            for ref_file, species_code in accession_species_dict.items():
+                # Remove any '.' from the best ref file
+                # The match should work as follows: best_ref = NC_002945.4, ref_file = NC_002945v4. Strip off the
+                # .4 from best_ref, and check to see if that string is present in ref_file
+                if best_ref.split('.')[0] in ref_file:
+                    # Populate the dictionary with the extracted species code
+                    strain_species_dict[strain_name] = species_code
+                    # Overwrite the strain_best_ref_dict for each strain with ref_file; this will ensure compatibility
+                    # with downstream analyses
+                    strain_best_ref_dict[strain_name] = ref_file
+        return strain_species_dict, strain_best_ref_dict
+
+    @staticmethod
+    def reference_folder(strain_best_ref_dict, dependency_path):
+        """
+        Create a dictionary of base strain name to the folder containing all the closest reference genome dependency
+        files
+        :param dependency_path: type STR: Absolute path to dependency folder
+        :param strain_best_ref_dict: type DICT: Dictionary of strain name: closest reference genome
+        :return: reference_link_path_dict: Dictionary of strain name: relative path to symlinked reference genome
+        """
+        # Initialise dictionaries
+        reference_link_dict = dict()
+        reference_link_path_dict = dict()
+        # Read in the .csv file with reference file name: relative symbolic link information
+        with open(os.path.join(dependency_path, 'reference_links.csv'), 'r') as reference_paths:
+            for line in reference_paths:
+                # Extract the link information
+                reference, linked_file = line.rstrip().split(',')
+                reference_link_dict[reference] = linked_file
+        # Use the strain-specific best reference genome name to extract the relative symlink information
+        for strain_name, best_ref in strain_best_ref_dict.items():
+            reference_link_path_dict[strain_name] = reference_link_dict[best_ref]
+        return reference_link_path_dict, reference_link_dict
