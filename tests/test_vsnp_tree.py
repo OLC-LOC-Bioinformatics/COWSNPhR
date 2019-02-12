@@ -11,10 +11,10 @@ import os
 
 __author__ = 'adamkoziol'
 
-testpath = os.path.abspath(os.path.dirname(__file__))
-filepath = os.path.join(testpath, 'files', 'vcf')
-dependencypath = os.path.join(os.path.dirname(testpath), 'dependencies')
-report_path = os.path.join(filepath, 'reports')
+test_path = os.path.abspath(os.path.dirname(__file__))
+file_path = os.path.join(test_path, 'files', 'vcf')
+dependency_path = os.path.join(os.path.dirname(test_path), 'dependencies')
+report_path = os.path.join(file_path, 'reports')
 threads = multiprocessing.cpu_count() - 1
 # Define the start time
 start_time = datetime.now()
@@ -33,12 +33,12 @@ def test_invalid_path():
 
 def test_no_threads():
     with pytest.raises(TypeError):
-        assert VSNPTree(path=filepath)
+        assert VSNPTree(path=file_path)
 
 
 def test_valid_path():
     global vcf_object
-    vcf_object = VSNPTree(path=filepath,
+    vcf_object = VSNPTree(path=file_path,
                           threads=threads)
     assert vcf_object
 
@@ -68,12 +68,12 @@ def test_normal_filer_dict():
 
 def test_vcf_file_list_no_files():
     with pytest.raises(AssertionError):
-        VSNPTreeMethods.file_list(path=testpath)
+        VSNPTreeMethods.file_list(file_path=test_path)
 
 
 def test_vcf_file_list():
     global file_list
-    file_list = VSNPTreeMethods.file_list(path=filepath)
+    file_list = VSNPTreeMethods.file_list(file_path=file_path)
     assert len(file_list) == 7
 
 
@@ -98,7 +98,7 @@ def test_strain_namer_working():
 
 def test_make_path():
     global make_path_folder
-    make_path_folder = os.path.join(testpath, 'test_folder')
+    make_path_folder = os.path.join(test_path, 'test_folder')
     make_path(make_path_folder)
     assert os.path.isdir(make_path_folder)
 
@@ -125,7 +125,7 @@ def test_symlink():
 def test_accession_species():
     global accession_species_dict
     accession_species_dict = VSNPTreeMethods.parse_accession_species(ref_species_file=os.path.join(
-        dependencypath, 'mash', 'species_accessions.csv'))
+        dependency_path, 'mash', 'species_accessions.csv'))
     assert accession_species_dict['NC_002945v4.fasta'] == 'af'
 
 
@@ -137,24 +137,99 @@ def test_vcf_load():
 
 
 def test_determine_ref_species():
-    global strain_species_dict, strain_best_ref_dict
-    strain_species_dict, strain_best_ref_dict = VSNPTreeMethods.determine_ref_species(strain_best_ref_dict=strain_best_ref_dict,
-                                                                accession_species_dict=accession_species_dict)
+    global strain_species_dict, strain_best_ref_fasta_dict
+    strain_species_dict, strain_best_ref_fasta_dict = \
+        VSNPTreeMethods.determine_ref_species(strain_best_ref_dict=strain_best_ref_dict,
+                                              accession_species_dict=accession_species_dict)
     assert strain_species_dict['13-1941'] == 'af'
     assert strain_species_dict['B13-0234'] == 'suis1'
-    assert strain_best_ref_dict['13-1941'] == 'NC_002945v4.fasta'
+    assert strain_best_ref_fasta_dict['13-1941'] == 'NC_002945v4.fasta'
 
 
 def test_reference_path():
     global reference_link_path_dict, reference_link_dict
     reference_link_path_dict, \
-        reference_link_dict = VSNPTreeMethods.reference_folder(strain_best_ref_dict=strain_best_ref_dict,
-                                                               dependency_path=dependencypath)
-    assert reference_link_path_dict['13-1950'] == 'mycobacterium/tbc/af2122/script_dependents/NC_002945v4.fasta'
+        reference_link_dict = VSNPTreeMethods.reference_folder(strain_best_ref_fasta_dict=strain_best_ref_fasta_dict,
+                                                               dependency_path=dependency_path)
+    assert reference_link_path_dict['13-1950'] == 'mycobacterium/tbc/af2122/script_dependents'
+
+
+def test_extract_defining_snps():
+    global defining_snp_dict
+    defining_snp_dict = VSNPTreeMethods.extract_defining_snps(reference_link_path_dict=reference_link_path_dict,
+                                                              strain_species_dict=strain_species_dict,
+                                                              dependency_path=dependency_path)
+    for species, snp_dict in defining_snp_dict.items():
+        if species == 'af':
+            assert snp_dict['Mbovis-01']['NC_002945.4'] == '2138896'
+            assert snp_dict['Group_9_15']['NC_002945.4'] == '2145868!'
+        elif species == 'suis1':
+            assert snp_dict['Bsuis1-01']['NC_017251.1'] == '213522'
+
+
+def test_load_snp_positions():
+    global ref_snp_positions, strain_snp_positions, strain_snp_sequence
+    ref_snp_positions, strain_snp_positions, strain_snp_sequence = \
+        VSNPTreeMethods.load_snp_positions(strain_vcf_object_dict=strain_vcf_object_dict,
+                                           strain_species_dict=strain_species_dict,
+                                           strain_best_ref_dict=strain_best_ref_dict)
+    assert ref_snp_positions['NC_002945.4'][4480] == 'T'
+    assert ref_snp_positions['NC_017250.1'][1197913] == 'T'
+    assert ref_snp_positions['NC_017251.1'][50509] == 'A'
+    assert sorted(strain_snp_positions['13-1941'])[0] == 1057
+    assert sorted(strain_snp_positions['B13-0234'])[0] == 8810
+    assert strain_snp_sequence['13-1941'][1057] == 'G'
+
+
+def test_determine_groups():
+    global strain_groups
+    strain_groups = VSNPTreeMethods.determine_groups(strain_snp_positions, defining_snp_dict)
+    assert strain_groups['13-1941'] == ['Mbovis-01', 'Mbovis-01A', 'Group_1-5', 'Group_9_15']
+    assert strain_groups['B13-0234'] == ['Bsuis1-09', 'Bsuis1-09B']
+
+
+def test_load_filter_file():
+    global filter_dict
+    filter_dict = VSNPTreeMethods.load_filter_file(reference_link_path_dict=reference_link_path_dict,
+                                                   strain_best_ref_dict=strain_best_ref_dict,
+                                                   dependency_path=dependency_path)
+    assert filter_dict['NC_002945.4']['Mbovis-All'][0] == 79513
+    assert filter_dict['NC_017250.1']['Bsuis1-All'][0] == 282708
+    assert len(filter_dict['NC_017251.1']['Bsuis1-All']) == 427
+
+
+def test_filter_positions():
+    global strain_filtered_sequences
+    strain_filtered_sequences = VSNPTreeMethods.filter_positions(strain_snp_positions=strain_snp_positions,
+                                                                 strain_groups=strain_groups,
+                                                                 strain_best_ref_dict=strain_best_ref_dict,
+                                                                 filter_dict=filter_dict,
+                                                                 strain_snp_sequence=strain_snp_sequence)
+
+
+def test_load_genbank_file():
+    global best_ref_gbk_dict
+    best_ref_gbk_dict = VSNPTreeMethods.load_genbank_file(reference_link_path_dict=reference_link_path_dict,
+                                                          strain_best_ref_dict=strain_best_ref_dict,
+                                                          dependency_path=dependency_path)
+    for key, value in best_ref_gbk_dict['NC_002945.4'].items():
+        for feature in value.features:
+            assert feature.type == 'source'
+            assert str(feature.location) == '[0:4349904](+)'
+            # Only test the first feature
+            break
+
+
+# def test_species_specific_working_dir():
+#     global strain_specific_dir
+#     strain_specific_dir = \
+#         VSNPTreeMethods.species_specific_working_dir(strain_species_dict=strain_species_dict,
+#                                                      reference_link_path_dict=reference_link_path_dict,
+#                                                      path=file_path)
 
 
 def test_vsn_tree_run():
-    vsnp_tree = VSNPTree(path=filepath,
+    vsnp_tree = VSNPTree(path=file_path,
                          threads=threads)
     vsnp_tree.main()
 
