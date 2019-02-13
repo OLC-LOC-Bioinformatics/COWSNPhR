@@ -78,48 +78,11 @@ def test_vcf_file_list():
 
 
 def test_strain_dict():
-    global strain_folder_dict
-    strain_folder_dict = VSNPTreeMethods.strain_list(vcf_files=file_list)
-    assert len(strain_folder_dict) == 7
-
-
-def test_strain_namer_no_input():
-    strain_names = VSNPTreeMethods.strain_namer(strain_folders=str())
-    assert len(strain_names) == 0
-
-
-def test_strain_namer_working():
-    global strain_name_dict
-    strain_name_dict = VSNPTreeMethods.strain_namer(strain_folders=strain_folder_dict)
-    assert [strain for strain in sorted(strain_name_dict)] == \
-           ['13-1941', '13-1950', '13-1950_legacy', '13-1951',
-            'B13-0234', 'B13-0235', 'B13-0238']
-
-
-def test_make_path():
-    global make_path_folder
-    make_path_folder = os.path.join(test_path, 'test_folder')
-    make_path(make_path_folder)
-    assert os.path.isdir(make_path_folder)
-
-
-def test_rm_path():
-    os.rmdir(make_path_folder)
-    assert os.path.isdir(make_path_folder) is False
-
-
-def test_strain_linker():
     global strain_vcf_dict
-    strain_vcf_dict = VSNPTreeMethods.file_link(strain_folder_dict=strain_folder_dict,
-                                                strain_name_dict=strain_name_dict)
+    strain_vcf_dict = VSNPTreeMethods.strain_list(vcf_files=file_list)
     assert [strain for strain in sorted(strain_vcf_dict)] == \
            ['13-1941', '13-1950', '13-1950_legacy', '13-1951',
             'B13-0234', 'B13-0235', 'B13-0238']
-
-
-def test_symlink():
-    for strain_name, vcf_link in strain_vcf_dict.items():
-        assert os.path.islink(vcf_link)
 
 
 def test_accession_species():
@@ -179,6 +142,7 @@ def test_load_snp_positions():
     assert sorted(strain_snp_positions['13-1941'])[0] == 1057
     assert sorted(strain_snp_positions['B13-0234'])[0] == 8810
     assert strain_snp_sequence['13-1941'][1057] == 'G'
+    assert strain_snp_sequence['13-1941'][2071827] == 'R'
 
 
 def test_determine_groups():
@@ -199,12 +163,29 @@ def test_load_filter_file():
 
 
 def test_filter_positions():
-    global strain_filtered_sequences
-    strain_filtered_sequences = VSNPTreeMethods.filter_positions(strain_snp_positions=strain_snp_positions,
+    global strain_filtered_sequences, group_positions_dict
+    strain_filtered_sequences, group_positions_dict = \
+        VSNPTreeMethods.filter_positions(strain_snp_positions=strain_snp_positions,
                                                                  strain_groups=strain_groups,
                                                                  strain_best_ref_dict=strain_best_ref_dict,
                                                                  filter_dict=filter_dict,
                                                                  strain_snp_sequence=strain_snp_sequence)
+    assert strain_filtered_sequences['13-1941']['Mbovis-All'][1057] == 'G'
+    with pytest.raises(KeyError):
+        assert strain_filtered_sequences['13-1941']['Bsuis1-All']
+    assert strain_filtered_sequences['B13-0234']['Bsuis1-All'][29269] == 'G'
+    with pytest.raises(KeyError):
+        assert strain_filtered_sequences['B13-0234']['Bsuis1-All'][1057]
+    assert 364560 in group_positions_dict['Mbovis-All']
+
+
+def test_create_multifasta():
+    global group_folders, species_folders,group_fasta_dict
+    group_folders, species_folders, group_fasta_dict = VSNPTreeMethods.create_multifasta(strain_filtered_sequences, strain_species_dict, group_positions_dict, file_path)
+    assert len(group_folders) == 9
+    assert len(species_folders) == 2
+    for group, fasta in group_fasta_dict.items():
+        assert os.path.getsize(fasta) > 100
 
 
 def test_load_genbank_file():
@@ -228,12 +209,12 @@ def test_load_genbank_file():
 #                                                      path=file_path)
 
 
-def test_vsn_tree_run():
+def test_vsnp_tree_run():
     vsnp_tree = VSNPTree(path=file_path,
                          threads=threads)
     vsnp_tree.main()
 
 
-def test_remove_working_dir():
-    for strain_name, working_dir in strain_name_dict.items():
-        shutil.rmtree(working_dir)
+# def test_remove_species_folders():
+#     for species_folder in species_folders:
+#         shutil.rmtree(species_folder)

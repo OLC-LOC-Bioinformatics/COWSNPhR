@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
 from accessoryFunctions.accessoryFunctions import filer, make_path, relative_symlink, run_subprocess, write_to_logfile
+from Bio.SeqRecord import SeqRecord
+from Bio.Alphabet import IUPAC
+from Bio.Seq import Seq
 from Bio import SeqIO
 from glob import glob
 import xlsxwriter
@@ -35,60 +38,21 @@ class VSNPTreeMethods(object):
         Parse a list of absolute paths of VCF files to yield the name of the strain.
         e.g. /path/to/03-1057.vcf will return a dictionary of /path/to/03-1057: path/to/03-1057.vcf
         :param vcf_files: type LIST: List of absolute of paths to vcf_files
-        :return strain_dict: dictionary of the absolute paths to the base strain name: VCF files
+        :return strain_name_dict: Dictionary of strain name: absolute path to VCF file
         """
         # Initialise a dictionary to store the base name of the VCF file: absolute path to file
-        strain_dict = dict()
+        strain_name_dict = dict()
         for vcf_file in vcf_files:
             # Split off the extension
             base_name = os.path.splitext(vcf_file)[0]
             # Remove _filtered and _zc from the base name
             base_name = base_name if not base_name.endswith('_filtered') else base_name.split('_filtered')[0]
             base_name = base_name if not base_name.endswith('_zc') else base_name.split('_zc')[0]
-            # Populate the dictionary with the base name: absolute path to the file
-            strain_dict[base_name] = vcf_file
-        return strain_dict
-
-    @staticmethod
-    def strain_namer(strain_folders):
-        """
-        Extract the base strain name from a list of absolute paths with the strain name (this list is usually created
-        using the strain_list method above
-        e.g. /path/to/03-1057 will yield 03-1057
-        :param strain_folders: type iterable: List or dictionary of absolute paths and base strain names
-        :return: strain_names: list of strain base names
-        """
-        # Initialise a dictionary to store the strain names
-        strain_name_dict = dict()
-        for strain_folder in strain_folders:
             # Extract the base name from the absolute path plus base name
-            strain_name = os.path.basename(strain_folder)
-            strain_name_dict[strain_name] = strain_folder
+            strain_name = os.path.basename(base_name)
+            strain_name_dict[strain_name] = vcf_file
         return strain_name_dict
 
-    @staticmethod
-    def file_link(strain_folder_dict, strain_name_dict):
-        """
-        Create folders for each strain. Create relative symlinks to the original VCF files from within the folder
-        :param strain_folder_dict: type DICT: Dictionary of strain folder path: VCF files
-        :param strain_name_dict: type DICT: Dictionary of base strain name: strain folder path
-        :return: strain_vcf_dict: Dictionary of strain name: absolute path of VCF file
-        """
-        # Initialise a dictionary to store strain name: absolute path to VCF file links
-        strain_vcf_dict = dict()
-        for strain_name, strain_folder in strain_name_dict.items():
-            # Create the strain folder path if required
-            make_path(strain_folder)
-            # Use the strain_folder value from the strain_name_dict as the key to extract the list of VCF files
-            # associated with each strain
-            vcf_file = strain_folder_dict[strain_folder]
-            # Create relative symlinks between the original VCF files and the strain folder
-            symlink_path = relative_symlink(src_file=vcf_file,
-                                            output_dir=strain_folder,
-                                            export_output=True)
-            # Add the absolute path of the symlink to the dictionary
-            strain_vcf_dict[strain_name] = symlink_path
-        return strain_vcf_dict
 
     @staticmethod
     def parse_accession_species(ref_species_file):
@@ -239,6 +203,21 @@ class VSNPTreeMethods(object):
         :return: strain_snp_positions: Dictionary of strain name: all strain-specific SNP positions
         :return: strain_snp_sequence: Dictionary of strain name: SNP position: strain-specific sequence
         """
+        # Dictionary of degenerate IUPAC codes
+        iupac = {
+            'R': ['A', 'G'],
+            'Y': ['C', 'T'],
+            'S': ['C', 'G'],
+            'W': ['A', 'T'],
+            'K': ['G', 'T'],
+            'M': ['A', 'C'],
+            'B': ['C', 'G', 'T'],
+            'D': ['A', 'G', 'T'],
+            'H': ['A', 'C', 'T'],
+            'V': ['A', 'C', 'G'],
+            'N': ['A', 'C', 'G', 'T'],
+            '-': ['-']
+        }
         # Initialise a dictionary to store all the SNP locations, and the reference sequence for each reference
         # genome
         ref_snp_positions = dict()
@@ -260,17 +239,27 @@ class VSNPTreeMethods(object):
                     # Flu VCF files must be treated slightly differently
                     if species == 'flu':
                         # Use both AC=1 and AC=2 as valid position
-                        if str(record.ALT[0]) != "None" and len(record.REF) == 1 and record.QUAL >= 150:
+                        if len(record.REF) == 1 and record.QUAL >= 150:
                             # Add the position, and the reference base to the dictionary
                             ref_snp_positions[best_ref][record.POS] = record.REF
                             strain_snp_positions[strain_name].append(record.POS)
-                            strain_snp_sequence[strain_name][record.POS] = record.ALT[0]
+                            strain_snp_sequence[strain_name][record.POS] = str(record.ALT[0])
                     else:
-                        if str(record.ALT[0]) != "None" and record.INFO['AC'][0] == 2 and len(
-                                record.REF) == 1 and record.QUAL >= 150:
+                        # Check to ensure that the strain does not contain a mixed allele population
+                        if record.INFO['AC'][0] == 2 and len(record.REF) == 1 and record.QUAL >= 150:
                             ref_snp_positions[best_ref][record.POS] = record.REF
                             strain_snp_positions[strain_name].append(record.POS)
-                            strain_snp_sequence[strain_name][record.POS] = record.ALT[0]
+                            strain_snp_sequence[strain_name][record.POS] = str(record.ALT[0])
+                        elif record.INFO['AC'][0] == 1 and len(record.REF) == 1 and record.QUAL >= 150:
+                            # If there is a mixed allele population, check against the IUPAC codes
+                            for code, components in iupac.items():
+                                # Create a sorted list of the alt and reference sequence e.g. ['A', 'T'] and see if
+                                # it matches a particular IUPAC list. record the corresponding IUPAC code e.g. 'W'
+                                if sorted([str(record.ALT[0]), record.REF]) == sorted(components):
+                                    ref_snp_positions[best_ref][record.POS] = record.REF
+                                    strain_snp_positions[strain_name].append(record.POS)
+                                    strain_snp_sequence[strain_name][record.POS] = code
+
                 except KeyError:
                     pass
         return ref_snp_positions, strain_snp_positions, strain_snp_sequence
@@ -373,9 +362,12 @@ class VSNPTreeMethods(object):
         :param filter_dict: type DICT: Dictionary of reference file: group name: locations to filter
         :param strain_snp_sequence: type DICT: Dictionary of strain name: SNP position: strain-specific sequence
         :return: strain_filtered_sequences: Dictionary of strain name: SNP pos: SNP sequence
+        :return: group_positions_dict: Dictionary of group name: set of all SNP positions from all strains for
+        that group
         """
         # Initialise a dictionary to store the location and sequence of SNPs that pass filter
         strain_filtered_sequences = dict()
+        group_positions_dict = dict()
         for strain_name, snp_positions in strain_snp_positions.items():
             strain_filtered_sequences[strain_name] = dict()
             # Extract the necessary variables from dictionaries
@@ -384,8 +376,9 @@ class VSNPTreeMethods(object):
             for group, positions in filter_dict[best_ref].items():
                 # All strains of a particular species fall within the 'All' category
                 if 'All' in group or group in groups:
-                    # Initialise the dictionary with the group
+                    # Initialise the dictionaries with the group
                     strain_filtered_sequences[strain_name][group] = dict()
+                    group_positions_dict[group] = set()
                     for snp_pos in snp_positions:
                         # Use the filter positions to remove unwanted positions
                         if snp_pos not in positions:
@@ -393,7 +386,61 @@ class VSNPTreeMethods(object):
                             # the dictionary
                             strain_filtered_sequences[strain_name][group][snp_pos] = \
                                 strain_snp_sequence[strain_name][snp_pos]
-        return strain_filtered_sequences
+                            group_positions_dict[group].add(snp_pos)
+        return strain_filtered_sequences, group_positions_dict
+
+    @staticmethod
+    def create_multifasta(strain_filtered_sequences, strain_species_dict, group_positions_dict, file_path):
+        """
+        Create a multiple sequence alignment in FASTA format for each group from all the SNP positions for the group
+        :param strain_filtered_sequences: type DICT: Dictionary of strain name: SNP pos: SNP sequence
+        :param strain_species_dict: type DICT: Dictionary of strain name: species code
+        :param group_positions_dict: type DICT: Dictionary of group name: set of all SNP positions from all strains for
+        that group
+        :param file_path: type STR: Absolute path of folder containing VCF files
+        :return: group_fasta_dict: Dictionary of group name: FASTA file created for the group
+        :return: group_folders: Set of absolute paths to folders for each group
+        :return: species_folders: Set of absolute path to folders for each species
+        """
+        # Initialise variables to return
+        group_fasta_dict = dict()
+        group_folders = set()
+        species_folders = set()
+        for strain_name, group_dict in strain_filtered_sequences.items():
+            # Extract the species code from the dictionary
+            species = strain_species_dict[strain_name]
+            # Add the absolute path of the species-specific folder to the set of all species folders
+            species_folders.add(os.path.join(file_path, species))
+            for group, snp_dict in group_dict.items():
+                # Set the absolute path to the folder containing the group-specific analyses
+                output_dir = os.path.join(file_path, species, group)
+                make_path(output_dir)
+                # Add the group-specific folder to the set of all group folders
+                group_folders.add(output_dir)
+                # Initialise a string to store the 'core' SNP sequence for the current strain: group
+                strain_group_seq = str()
+                # Extract the set of all positions to consider for the current group
+                snp_positions = group_positions_dict[group]
+                # Attempt to extract the strain: group sequence for every position, and add the sequence to the string
+                for snp_pos in snp_positions:
+                    try:
+                        strain_group_seq += snp_dict[snp_pos]
+                    # If the position is missing, add a '-' to the string
+                    except KeyError:
+                        strain_group_seq += '-'
+                # Create a SeqRecord from the sequence string in IUPAC ambiguous DNA format. Use the strain name
+                # as the id
+                record = SeqRecord(Seq(strain_group_seq, IUPAC.ambiguous_dna),
+                                   id=strain_name,
+                                   description='')
+                # Set the name of the FASTA alignment file
+                group_fasta = os.path.join(output_dir, '{group}_alignment.fasta'.format(group=group))
+                # Use SeqIO to append the FASTA sequence to the alignment file
+                with open(group_fasta, 'a+') as fasta:
+                    SeqIO.write(record, fasta, 'fasta')
+                # Add the alignment file to the set of all alignment files
+                group_fasta_dict[group] = group_fasta
+        return group_folders, species_folders, group_fasta_dict
 
     @staticmethod
     def load_genbank_file(reference_link_path_dict, strain_best_ref_dict, dependency_path):
