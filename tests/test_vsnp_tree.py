@@ -137,6 +137,7 @@ def test_load_snp_positions():
                                            strain_species_dict=strain_species_dict,
                                            strain_best_ref_dict=strain_best_ref_dict)
     assert ref_snp_positions['NC_002945.4'][4480] == 'T'
+    print(ref_snp_positions['NC_017250.1'])
     assert ref_snp_positions['NC_017250.1'][1197913] == 'T'
     assert ref_snp_positions['NC_017251.1'][50509] == 'A'
     assert sorted(strain_snp_positions['13-1941'])[0] == 1057
@@ -177,6 +178,8 @@ def test_filter_positions():
     with pytest.raises(KeyError):
         assert strain_filtered_sequences['B13-0234']['Bsuis1-All'][1057]
     assert 364560 in group_positions_dict['Mbovis-All']
+    print(strain_filtered_sequences[''])
+    assert False
 
 
 def test_create_multifasta():

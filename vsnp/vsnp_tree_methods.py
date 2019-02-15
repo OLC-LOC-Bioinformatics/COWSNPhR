@@ -47,12 +47,12 @@ class VSNPTreeMethods(object):
             base_name = os.path.splitext(vcf_file)[0]
             # Remove _filtered and _zc from the base name
             base_name = base_name if not base_name.endswith('_filtered') else base_name.split('_filtered')[0]
+            base_name = base_name if not base_name.endswith('.recode') else base_name.split('.recode')[0]
             base_name = base_name if not base_name.endswith('_zc') else base_name.split('_zc')[0]
             # Extract the base name from the absolute path plus base name
             strain_name = os.path.basename(base_name)
             strain_name_dict[strain_name] = vcf_file
         return strain_name_dict
-
 
     @staticmethod
     def parse_accession_species(ref_species_file):
@@ -223,6 +223,7 @@ class VSNPTreeMethods(object):
         ref_snp_positions = dict()
         strain_snp_positions = dict()
         strain_snp_sequence = dict()
+        print('')
         for strain_name, vcf_object in strain_vcf_object_dict.items():
             strain_snp_positions[strain_name] = list()
             strain_snp_sequence[strain_name] = dict()
@@ -232,6 +233,16 @@ class VSNPTreeMethods(object):
             best_ref = strain_best_ref_dict[strain_name]
             # Iterate through all the records
             for record in vcf_object:
+                if record.INFO:
+                    pass
+                    # print(strain_name, record.INFO)
+                else:
+                    print(dict(record.samples[0]))
+                    # for blerg in record.samples[0]:
+                    #     print(blerg)
+                    for key, value in vars(record).items():
+                        print(key, value)
+                break
                 # Initialise the reference genome key as required
                 if best_ref not in ref_snp_positions:
                     ref_snp_positions[best_ref] = dict()
@@ -260,8 +271,9 @@ class VSNPTreeMethods(object):
                                     strain_snp_positions[strain_name].append(record.POS)
                                     strain_snp_sequence[strain_name][record.POS] = code
 
-                except KeyError:
-                    pass
+                except KeyError as e:
+                    print(strain_name, record, record.INFO, e)
+                    break
         return ref_snp_positions, strain_snp_positions, strain_snp_sequence
 
     @staticmethod
