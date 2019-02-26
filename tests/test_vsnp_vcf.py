@@ -3,6 +3,7 @@ from accessoryFunctions.accessoryFunctions import filer, make_path
 from vsnp.vsnp_vcf_methods import VCFMethods
 from vsnp.vsnp_vcf_run import VCF
 from datetime import datetime
+from pathlib import Path
 import multiprocessing
 from glob import glob
 import pytest
@@ -11,11 +12,12 @@ import os
 
 __author__ = 'adamkoziol'
 
-testpath = os.path.abspath(os.path.dirname(__file__))
-filepath = os.path.join(testpath, 'files', 'fastq')
-dependencypath = os.path.join(os.path.dirname(testpath), 'dependencies')
-report_path = os.path.join(filepath, 'reports')
+test_path = os.path.abspath(os.path.dirname(__file__))
+file_path = os.path.join(test_path, 'files', 'fastq')
+dependency_path = os.path.join(os.path.dirname(test_path), 'dependencies')
+report_path = os.path.join(file_path, 'reports')
 threads = multiprocessing.cpu_count() - 1
+home = str(Path.home())
 # Define the start time
 start_time = datetime.now()
 
@@ -33,11 +35,11 @@ def test_invalid_path():
 
 def test_no_threads():
     with pytest.raises(TypeError):
-        assert VCF(path=filepath)
+        assert VCF(path=file_path)
 
 
 def test_valid_path():
-    vcf_object = VCF(path=filepath,
+    vcf_object = VCF(path=file_path,
                      threads=threads)
     assert vcf_object
 
@@ -96,12 +98,12 @@ def test_no_directions_filer():
 
 def test_vcf_file_list_no_files():
     with pytest.raises(AssertionError):
-        VCFMethods.file_list(path=testpath)
+        VCFMethods.file_list(path=test_path)
 
 
 def test_vcf_file_list():
     global file_list
-    file_list = VCFMethods.file_list(path=filepath)
+    file_list = VCFMethods.file_list(path=file_path)
     assert len(file_list) == 7
 
 
@@ -128,7 +130,7 @@ def test_strain_namer_working():
 
 def test_make_path():
     global make_path_folder
-    make_path_folder = os.path.join(testpath, 'test_folder')
+    make_path_folder = os.path.join(test_path, 'test_folder')
     make_path(make_path_folder)
     assert os.path.isdir(make_path_folder)
 
@@ -154,7 +156,7 @@ def test_strain_linker():
 
 def test_reformat_quality():
     global logfile, strain_qhist_dict, strain_lhist_dict
-    logfile = os.path.join(filepath, 'log')
+    logfile = os.path.join(file_path, 'log')
     strain_qhist_dict, strain_lhist_dict = VCFMethods.run_reformat_reads(strain_fastq_dict=strain_fastq_dict,
                                                                          strain_name_dict=strain_name_dict,
                                                                          logfile=logfile)
@@ -199,7 +201,7 @@ def test_mash_dist():
                                                strain_name_dict=strain_name_dict,
                                                fastq_sketch_dict=fastq_sketch_dict,
                                                ref_sketch_file=os.path.join(
-                                                   dependencypath, 'mash', 'vsnp_reference.msh'),
+                                                   dependency_path, 'mash', 'vsnp_reference.msh'),
                                                logfile=logfile)
     for strain, tab_output in mash_dist_dict.items():
         assert os.path.isfile(tab_output)
@@ -208,7 +210,7 @@ def test_mash_dist():
 def test_mash_accession_species():
     global accession_species_dict
     accession_species_dict = VCFMethods.parse_mash_accession_species(mash_species_file=os.path.join(
-        dependencypath, 'mash', 'species_accessions.csv'))
+        dependency_path, 'mash', 'species_accessions.csv'))
     assert accession_species_dict['NC_002945v4.fasta'] == 'af'
 
 
@@ -226,7 +228,7 @@ def test_reference_file_paths():
     global reference_link_path_dict, reference_link_dict
     reference_link_path_dict, reference_link_dict = VCFMethods.reference_folder(
         strain_best_ref_dict=strain_best_ref_dict,
-        dependency_path=dependencypath)
+        dependency_path=dependency_path)
     assert reference_link_path_dict['13-1950'] == 'mycobacterium/tbc/af2122/script_dependents/NC_002945v4.fasta'
 
 
@@ -234,9 +236,9 @@ def test_bowtie2_build():
     global strain_bowtie2_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict
     strain_bowtie2_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict = \
         VCFMethods.bowtie2_build(reference_link_path_dict=reference_link_path_dict,
-                                 dependency_path=dependencypath,
+                                 dependency_path=dependency_path,
                                  logfile=logfile)
-    assert os.path.isfile(os.path.join(dependencypath, 'mycobacterium', 'tbc', 'af2122', 'script_dependents',
+    assert os.path.isfile(os.path.join(dependency_path, 'mycobacterium', 'tbc', 'af2122', 'script_dependents',
                                        'NC_002945v4.1.bt2'))
     assert os.path.split(strain_bowtie2_index_dict['13-1950'])[-1] == 'NC_002945v4'
 
@@ -303,81 +305,113 @@ def test_qualimap_parse():
     assert int(strain_qualimap_outputs_dict['13-1950']['MappedReads'].split('(')[0]) >= 370000
 
 
-def test_regions():
-    global strain_ref_regions_dict
-    strain_ref_regions_dict = VCFMethods.reference_regions(
-        strain_reference_abs_path_dict=strain_reference_abs_path_dict,
-        logfile=logfile)
-    for strain_name, ref_regions_file in strain_ref_regions_dict.items():
-        assert os.path.isfile(ref_regions_file)
-        assert os.path.getsize(ref_regions_file) > 0
-
-
-def test_freebayes():
-    """
-    Run FreeBayes on a single strain
-    """
-    global strain_vcf_dict
+def test_deepvariant_make_examples():
+    global strain_examples_dict, strain_variant_path_dict, strain_gvcf_tfrecords_dict, vcf_path
+    vcf_path = os.path.join(file_path, 'vcf_files')
     reduced_strain_sorted_bam_dict = dict()
     reduced_strain_sorted_bam_dict['13-1941'] = strain_sorted_bam_dict['13-1941']
-    strain_vcf_dict = VCFMethods.freebayes(strain_sorted_bam_dict=reduced_strain_sorted_bam_dict,
-                                           strain_name_dict=strain_name_dict,
-                                           strain_reference_abs_path_dict=strain_reference_abs_path_dict,
-                                           strain_ref_regions_dict=strain_ref_regions_dict,
-                                           threads=threads,
-                                           logfile=logfile)
-    for strain_name, vcf_file in strain_vcf_dict.items():
-        assert os.path.getsize(vcf_file) > 10000
+    strain_examples_dict, strain_variant_path_dict, strain_gvcf_tfrecords_dict = \
+        VCFMethods.deepvariant_make_examples(strain_sorted_bam_dict=reduced_strain_sorted_bam_dict,
+                                             strain_name_dict=strain_name_dict,
+                                             strain_reference_abs_path_dict=strain_reference_abs_path_dict,
+                                             vcf_path=vcf_path,
+                                             home=home,
+                                             threads=threads)
+    assert len(strain_examples_dict['13-1941']) == threads
+    for strain_name, gvcf_tfrecord in strain_gvcf_tfrecords_dict.items():
+        gvcf_tfrecord = gvcf_tfrecord.split('@')[0]
+        if strain_name != 'NC_002695':
+            assert len(glob('{gvcf_tfrecord}*.gz'.format(gvcf_tfrecord=gvcf_tfrecord))) == threads
+        else:
+            assert len(glob('{gvcf_tfrecord}*.gz'.format(gvcf_tfrecord=gvcf_tfrecord))) == 0
+
+
+def test_deepvariant_call_variants():
+    global strain_call_variants_dict
+    strain_call_variants_dict = \
+        VCFMethods.deepvariant_call_variants_multiprocessing(strain_variant_path_dict=strain_variant_path_dict,
+                                                             strain_name_dict=strain_name_dict,
+                                                             dependency_path=dependency_path,
+                                                             home=home,
+                                                             vcf_path=vcf_path,
+                                                             threads=threads,
+                                                             logfile=logfile)
+    assert os.path.getsize(strain_call_variants_dict['13-1941']) > 100
+    with pytest.raises(KeyError):
+        assert strain_call_variants_dict['NC_002695']
+
+
+def test_deepvariant_postprocess_variants():
+    global strain_vcf_dict
+    strain_vcf_dict = \
+        VCFMethods.deepvariant_postprocess_variants(strain_call_variants_dict=strain_call_variants_dict,
+                                                    strain_variant_path_dict=strain_variant_path_dict,
+                                                    strain_name_dict=strain_name_dict,
+                                                    strain_reference_abs_path_dict=strain_reference_abs_path_dict,
+                                                    strain_gvcf_tfrecords_dict=strain_gvcf_tfrecords_dict,
+                                                    vcf_path=vcf_path,
+                                                    home=home,
+                                                    logfile=logfile)
+    assert os.path.getsize(strain_vcf_dict['13-1941']) > 100
+    with pytest.raises(KeyError):
+        assert strain_vcf_dict['NC_002695']
+
+
+# def test_filter_vcf():
+#     global strain_vcf_dict
+#     strain_vcf_dict = VCFMethods.filter_vcf(strain_unfiltered_vcf_dict=strain_unfiltered_vcf_dict,
+#                                             strain_name_dict=strain_name_dict,
+#                                             logfile=logfile)
+#     assert os.path.getsize(strain_vcf_dict['13-1941']) > 100
+#     with pytest.raises(KeyError):
+#         assert strain_vcf_dict['NC_002695']
 
 
 def test_copy_test_vcf_files():
     """
-    Copy VCF files from test folder to supplement the lone FreeBayes-created VCF file. Populate the strain_vcf_dict
+    Copy VCF files from test folder to supplement the lone deepvariant-created VCF file. Populate the strain_vcf_dict
     dictionary with these VCF files
     """
     # Set the absolute path of the test folder containing the VCF files
-    vcf_test_path = os.path.join(testpath, 'files', 'vcf')
+    vcf_test_path = os.path.join(test_path, 'files', 'vcf')
     # Create a list of all the VCF files
-    vcf_files = glob(os.path.join(vcf_test_path, '*.vcf'))
+    vcf_files = glob(os.path.join(vcf_test_path, '*.gvcf.gz'))
     for strain_name, strain_folder in strain_name_dict.items():
-        # Set the absolute path of the destination for the VCF file
-        freebayes_out_dir = os.path.join(strain_folder, 'freebayes')
-        # Create the working directory if necessary
-        make_path(freebayes_out_dir)
-        # Set the name of the output .vcf file
-        vcf_base_name = '{sn}.vcf'.format(sn=strain_name)
-        freebayes_out_vcf = os.path.join(freebayes_out_dir, vcf_base_name)
-        # Don't try to copy the file if the original exists
-        if not os.path.isfile(freebayes_out_vcf):
+        if strain_name not in strain_vcf_dict:
+            # Set the name of the output .vcf file
+            vcf_base_name = '{sn}.gvcf.gz'.format(sn=strain_name)
+            out_vcf = os.path.join(strain_folder, vcf_base_name)
+            # Don't try to copy the file if the original exists
             for vcf_file in vcf_files:
                 if os.path.basename(vcf_file) == vcf_base_name:
-                    shutil.copyfile(vcf_file, freebayes_out_vcf)
-        # Update the dictionary
-        strain_vcf_dict[strain_name] = freebayes_out_vcf
-        if strain_name != 'NC_002695':
-            assert os.path.isfile(freebayes_out_vcf)
+                    shutil.copyfile(vcf_file, out_vcf)
+            # Update the dictionary
+            strain_vcf_dict[strain_name] = out_vcf
+            if strain_name != 'NC_002695':
+                assert os.path.isfile(out_vcf)
 
 
-def test_parse_vcf():
-    global strain_num_high_quality_snps_dict, strain_filtered_vcf_dict
-    strain_num_high_quality_snps_dict, strain_filtered_vcf_dict = VCFMethods.parse_vcf(strain_vcf_dict=strain_vcf_dict)
-    assert strain_num_high_quality_snps_dict['13-1941'] == 327
+def test_parse_variants():
+    global strain_num_high_quality_snps_dict
+    strain_num_high_quality_snps_dict = VCFMethods.parse_variants(strain_vcf_dict=strain_vcf_dict)
+    assert strain_num_high_quality_snps_dict['13-1941'] == 457
+    assert strain_num_high_quality_snps_dict['13-1950'] == 484
+    assert strain_num_high_quality_snps_dict['B13-0234'] == 69
+    assert strain_num_high_quality_snps_dict['NC_002695'] == 0
 
 
 def test_copy_vcf_files():
-    global vcf_path
-    vcf_path = os.path.join(filepath, 'vcf_files')
-    VCFMethods.copy_vcf_files(strain_filtered_vcf_dict=strain_filtered_vcf_dict,
+    VCFMethods.copy_vcf_files(strain_vcf_dict=strain_vcf_dict,
                               vcf_path=vcf_path)
     assert os.path.isdir(vcf_path)
-    assert len(glob(os.path.join(vcf_path, '*.vcf'))) == 3
+    assert len(glob(os.path.join(vcf_path, '*.gvcf.gz'))) == 3
 
 
 def test_spoligo_bait():
     global strain_spoligo_stats_dict
     strain_spoligo_stats_dict = VCFMethods.bait_spoligo(strain_fastq_dict=strain_fastq_dict,
                                                         strain_name_dict=strain_name_dict,
-                                                        spoligo_file=os.path.join(dependencypath,
+                                                        spoligo_file=os.path.join(dependency_path,
                                                                                   'mycobacterium',
                                                                                   'spacers.fasta'),
                                                         threads=threads,
@@ -407,10 +441,10 @@ def test_extract_sbcode():
 
 def test_brucella_mlst():
     global mlst_report
-    VCFMethods.brucella_mlst(seqpath=filepath,
-                             mlst_db_path=os.path.join(dependencypath, 'brucella', 'MLST'),
+    VCFMethods.brucella_mlst(seqpath=file_path,
+                             mlst_db_path=os.path.join(dependency_path, 'brucella', 'MLST'),
                              logfile=logfile)
-    mlst_report = os.path.join(filepath, 'reports', 'mlst.csv')
+    mlst_report = os.path.join(file_path, 'reports', 'mlst.csv')
     assert os.path.getsize(mlst_report) > 100
 
 
@@ -447,7 +481,7 @@ def test_report_create():
 
 
 def test_vcf_run():
-    vcf_object = VCF(path=filepath,
+    vcf_object = VCF(path=file_path,
                      threads=threads)
     vcf_object.main()
 
@@ -455,7 +489,7 @@ def test_vcf_run():
 def test_remove_bt2_indexes():
     for strain_name, ref_link in reference_link_path_dict.items():
         # Set the absolute path, and strip off the file extension for use in the build call
-        ref_abs_path = os.path.dirname(os.path.abspath(os.path.join(dependencypath, ref_link)))
+        ref_abs_path = os.path.dirname(os.path.abspath(os.path.join(dependency_path, ref_link)))
         bt2_files = glob(os.path.join(ref_abs_path, '*.bt2'))
         for bt2_index in bt2_files:
             os.remove(bt2_index)
@@ -463,23 +497,14 @@ def test_remove_bt2_indexes():
         assert not bt2_files
 
 
-def test_remove_regions_file():
-    for strain_name, ref_genome in strain_reference_abs_path_dict.items():
-        # Set the absolute path of the regions file
-        regions_file = ref_genome + '.regions'
-        if os.path.isfile(regions_file):
-            os.remove(regions_file)
-        assert os.path.isfile(regions_file) is False
-
-
 def test_remove_logs():
-    logs = glob(os.path.join(filepath, '*.txt'))
+    logs = glob(os.path.join(file_path, '*.txt'))
     for log in logs:
         os.remove(log)
 
 
 def test_remove_mlst_logs():
-    logs = glob(os.path.join(dependencypath, 'brucella', 'MLST', '*.log'))
+    logs = glob(os.path.join(dependency_path, 'brucella', 'MLST', '*.log'))
     for log in logs:
         os.remove(log)
 

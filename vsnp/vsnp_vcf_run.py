@@ -2,6 +2,7 @@
 from accessoryFunctions.accessoryFunctions import SetupLogging
 from vsnp.vsnp_vcf_methods import VCFMethods
 from datetime import datetime
+from pathlib import Path
 import logging
 import os
 
@@ -52,12 +53,12 @@ class VCF(object):
                                                    strain_name_dict=self.strain_name_dict,
                                                    fastq_sketch_dict=fastq_sketch_dict,
                                                    ref_sketch_file=os.path.join(
-                                                       self.dependencypath, 'mash', 'vsnp_reference.msh'),
+                                                       self.dependency_path, 'mash', 'vsnp_reference.msh'),
                                                    logfile=self.logfile)
         logging.info('Loading reference genome: species dictionary')
 
         accession_species_dict = VCFMethods.parse_mash_accession_species(mash_species_file=os.path.join(
-            self.dependencypath, 'mash', 'species_accessions.csv'))
+            self.dependency_path, 'mash', 'species_accessions.csv'))
 
         logging.info('Determining closest reference genome and extracting corresponding species from MASH outputs')
         self.strain_best_ref_dict, self.strain_ref_matches_dict, self.strain_species_dict = \
@@ -71,11 +72,11 @@ class VCF(object):
         logging.info('Extracting paths to reference genomes')
         reference_link_path_dict, reference_link_dict \
             = VCFMethods.reference_folder(strain_best_ref_dict=self.strain_best_ref_dict,
-                                          dependency_path=self.dependencypath)
+                                          dependency_path=self.dependency_path)
         logging.info('Running bowtie2 build')
         strain_bowtie2_index_dict, self.strain_reference_abs_path_dict, self.strain_reference_dep_path_dict = \
             VCFMethods.bowtie2_build(reference_link_path_dict=reference_link_path_dict,
-                                     dependency_path=self.dependencypath,
+                                     dependency_path=self.dependency_path,
                                      logfile=self.logfile)
         logging.info('Running bowtie2 reference mapping')
         self.strain_sorted_bam_dict = VCFMethods.bowtie2_map(
@@ -128,23 +129,43 @@ class VCF(object):
 
     def snp_calling(self):
         """
-        Prep files for SNP calling. Use FreeBayes to call SNPs. Parse the outputs from FreeBayes
+        Prep files for SNP calling. Use deepvariant to call SNPs. Parse the outputs from deepvariant
         """
-        logging.info('Creating regions file for reference genomes')
-        strain_ref_regions_dict = VCFMethods.reference_regions(
-            strain_reference_abs_path_dict=self.strain_reference_abs_path_dict,
-            logfile=self.logfile)
-        logging.info('Running FreeBayes on samples')
-        strain_vcf_dict = VCFMethods.freebayes(strain_sorted_bam_dict=self.strain_sorted_bam_dict,
-                                               strain_name_dict=self.strain_name_dict,
-                                               strain_reference_abs_path_dict=self.strain_reference_abs_path_dict,
-                                               strain_ref_regions_dict=strain_ref_regions_dict,
-                                               threads=self.threads,
-                                               logfile=self.logfile)
+        logging.info('Preparing files for SNP calling with deepvariant make_examples')
+        strain_examples_dict, strain_variant_path_dict, strain_gvcf_tfrecords_dict = \
+            VCFMethods.deepvariant_make_examples(strain_sorted_bam_dict=self.strain_sorted_bam_dict,
+                                                 strain_name_dict=self.strain_name_dict,
+                                                 strain_reference_abs_path_dict=self.strain_reference_abs_path_dict,
+                                                 vcf_path=os.path.join(self.path, 'vcf_files'),
+                                                 home=self.home,
+                                                 threads=self.threads)
+        logging.info('Calling variants with deepvariant call_variants')
+        strain_call_variants_dict = \
+            VCFMethods.deepvariant_call_variants_multiprocessing(strain_variant_path_dict=strain_variant_path_dict,
+                                                                 strain_name_dict=self.strain_name_dict,
+                                                                 dependency_path=self.dependency_path,
+                                                                 vcf_path=os.path.join(self.path, 'vcf_files'),
+                                                                 home=self.home,
+                                                                 threads=self.threads,
+                                                                 logfile=self.logfile)
+        logging.info('Creating VCF files with deepvariant postprocess_variants')
+        strain_vcf_dict = \
+            VCFMethods.deepvariant_postprocess_variants(
+                strain_call_variants_dict=strain_call_variants_dict,
+                strain_variant_path_dict=strain_variant_path_dict,
+                strain_name_dict=self.strain_name_dict,
+                strain_reference_abs_path_dict=self.strain_reference_abs_path_dict,
+                strain_gvcf_tfrecords_dict=strain_gvcf_tfrecords_dict,
+                vcf_path=os.path.join(self.path, 'vcf_files'),
+                home=self.home,
+                logfile=self.logfile)
+        # logging.info('Quality filtering VCF files with vcftools')
+        # strain_vcf_dict = VCFMethods.filter_vcf(strain_unfiltered_vcf_dict=strain_unfiltered_vcf_dict,
+        #                                         strain_name_dict=self.strain_name_dict,
+        #                                         logfile=self.logfile)
         logging.info('Parsing VCF outputs')
-        self.strain_num_high_quality_snps_dict, strain_filtered_vcf_dict = \
-            VCFMethods.parse_vcf(strain_vcf_dict=strain_vcf_dict)
-        VCFMethods.copy_vcf_files(strain_filtered_vcf_dict=strain_filtered_vcf_dict,
+        self.strain_num_high_quality_snps_dict = VCFMethods.parse_variants(strain_vcf_dict=strain_vcf_dict)
+        VCFMethods.copy_vcf_files(strain_vcf_dict=strain_vcf_dict,
                                   vcf_path=os.path.join(self.path, 'vcf_files'))
 
     def typing(self):
@@ -155,7 +176,7 @@ class VCF(object):
         logging.info('Searching for matches to spoligo sequences')
         strain_spoligo_stats_dict = VCFMethods.bait_spoligo(strain_fastq_dict=self.strain_fastq_dict,
                                                             strain_name_dict=self.strain_name_dict,
-                                                            spoligo_file=os.path.join(self.dependencypath,
+                                                            spoligo_file=os.path.join(self.dependency_path,
                                                                                       'mycobacterium',
                                                                                       'spacers.fasta'),
                                                             threads=self.threads,
@@ -172,7 +193,7 @@ class VCF(object):
             strain_octal_code_dict=self.strain_octal_code_dict)
         logging.info('Performing MLST analyses')
         VCFMethods.brucella_mlst(seqpath=self.path,
-                                 mlst_db_path=os.path.join(self.dependencypath, 'brucella', 'MLST'),
+                                 mlst_db_path=os.path.join(self.dependency_path, 'brucella', 'MLST'),
                                  logfile=self.logfile)
         logging.info('Parsing MLST outputs')
         self.strain_mlst_dict = VCFMethods.parse_mlst_report(strain_name_dict=self.strain_name_dict,
@@ -220,13 +241,14 @@ class VCF(object):
         self.threads = threads
         self.report_path = os.path.join(self.path, 'reports')
         # Extract the path of the folder containing this script
-        self.scriptpath = os.path.abspath(os.path.dirname(__file__))
+        self.script_path = os.path.abspath(os.path.dirname(__file__))
         # Use the script path to set the absolute path of the dependencies folder
-        self.dependencypath = os.path.join(os.path.dirname(self.scriptpath), 'dependencies')
-        assert os.path.isdir(self.dependencypath), 'Something went wrong with the install. Cannot locate the ' \
-                                                   'dependencies folder in: {sp}'.format(sp=self.scriptpath)
+        self.dependency_path = os.path.join(os.path.dirname(self.script_path), 'dependencies')
+        assert os.path.isdir(self.dependency_path), 'Something went wrong with the install. Cannot locate the ' \
+                                                   'dependencies folder in: {sp}'.format(sp=self.script_path)
         self.logfile = os.path.join(self.path, 'log')
         self.start_time = datetime.now()
+        self.home = str(Path.home())
         self.strain_name_dict = dict()
         self.strain_fastq_dict = dict()
         self.strain_best_ref_dict = dict()

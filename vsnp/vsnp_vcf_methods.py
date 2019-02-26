@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 from accessoryFunctions.accessoryFunctions import filer, make_path, relative_symlink, run_subprocess, write_to_logfile
 from Bio import SeqIO
+import multiprocessing
 from glob import glob
 import xlsxwriter
 import shutil
+import gzip
 import vcf
 import os
 
@@ -367,7 +369,7 @@ class VCFMethods(object):
             # Split the total of matching hashes from the total number of hashes
             matching_hashes = int(matching_hashes.split('/')[0])
             # Populate the dictionaries appropriately
-            if matching_hashes >= 500:
+            if matching_hashes >= 150:
                 strain_best_ref_dict[strain_name] = best_ref
                 strain_ref_matches_dict[strain_name] = matching_hashes
                 strain_species_dict[strain_name] = accession_species_dict[best_ref]
@@ -692,140 +694,292 @@ class VCFMethods(object):
         return key, value
 
     @staticmethod
-    def reference_regions(strain_reference_abs_path_dict, logfile, size=100000):
+    def deepvariant_make_examples(strain_sorted_bam_dict, strain_name_dict, strain_reference_abs_path_dict, vcf_path,
+                                  home, threads):
         """
-        Create a regions file to be used by freebayes-parallel. This file is the base pair position of the reference
-        genome in regions of a defined size (in this case 100000). The file contains the contig name: bp position range
-        NC_002945.4:0-100000
-        NC_002945.4:100000-200000
-        :param strain_reference_abs_path_dict: type DICT: Dictionary of strain name: absolute path of reference genome
-        :param logfile: type STR: Absolute path to logfile basename
-        :param size: type INT: Size of regions to create from reference genome
-        :return: strain_ref_regions_dict: Dictionary of strain name: regions file
+        Use make_examples from deepvariant to extract pileup images from sorted BAM files. Currently, deepvariant
+        does not support Python 3, so it will be run in a Docker container. The make_examples command is multi-
+        threaded with parallel
+        :param strain_sorted_bam_dict: type DICT: Dictionary of strain name: absolute path to strain-specific
+        sorted BAM file
+        :param strain_name_dict: type DICT: Dictionary of strain name: absolute path to strain-specific working dir
+        :param strain_reference_abs_path_dict: type DICT: Dictionary of strain name: absolute path to best reference
+        genome
+        :param vcf_path: type STR: Absolute path to folder in which all symlinks to .vcf files are to be created
+        :param home: type STR: Absolute path to $HOME
+        :param threads: type INT: Number of threads to use in the analyses
+        :return: strain_examples_dict: Dictionary of strain name: sorted list of deepvariant created example files
+        :return: strain_variant_path: Dictionary of strain name: absolute path to deepvariant working dir
+        :return: strain_gvcf_tfrecords_dict: Dictionary of strain name: absolute path to gVCF TFRecord file of
+        Variant protocol buffers
         """
-        # Initialise a dictionary to store the absolute path of the regions file
-        strain_ref_regions_dict = dict()
-        for strain_name, ref_genome in strain_reference_abs_path_dict.items():
-            # Set the absolute path of the regions file
-            regions_file = ref_genome + '.regions'
-            # Create the system call to fasta_generate_regions.py (part of the freebayes package)
-            regions_cmd = 'fasta_generate_regions.py {ref_genome}.fai {size} > {regions_file}' \
-                .format(ref_genome=ref_genome,
-                        size=size,
-                        regions_file=regions_file)
-            # Run the system call if the regions file does not exist
-            if not os.path.isfile(regions_file):
-                out, err = run_subprocess(regions_cmd)
-                # Write STDOUT and STDERR to the logfile
-                write_to_logfile(out=out,
-                                 err=err,
-                                 logfile=logfile)
-            # Populate the dictionary with the path to the regions file
-            strain_ref_regions_dict[strain_name] = regions_file
-        return strain_ref_regions_dict
-
-    @staticmethod
-    def freebayes(strain_sorted_bam_dict, strain_name_dict, strain_reference_abs_path_dict, strain_ref_regions_dict,
-                  threads, logfile):
-        """
-        Run freebayes-parallel on each sample
-        :param strain_sorted_bam_dict: type DICT: Dictionary of strain name: absolute path of sorted BAM file
-        :param strain_name_dict: type DICT: Dictionary of strain name: absolute path of strain-specific working folder
-        :param strain_reference_abs_path_dict: type DICT: Dictionary of strain name: absolute path of reference genome
-        :param strain_ref_regions_dict: type DICT: Dictionary of strain name: absolute path to reference genome
-        regions file
-        :param threads: type INT: Number of threads to request for the analyses
-        :param logfile: type STR: Absolute path to logfile basename
-        :return: strain_vcf_dict: Dictionary of strain name: freebayes-created .vcf file
-        """
-        # Initialise a dictionary to store the absolute path to the .vcf files
-        strain_vcf_dict = dict()
+        # Initialise a dictionary to store the absolute paths of all the output example files
+        strain_examples_dict = dict()
+        strain_gvcf_tfrecords_dict = dict()
+        strain_variant_path = dict()
         for strain_name, sorted_bam in strain_sorted_bam_dict.items():
-            # Extract the paths to the strain-specific working directory, the reference genome, and the regions file
+            # Extract the necessary variables
             strain_folder = strain_name_dict[strain_name]
             ref_genome = strain_reference_abs_path_dict[strain_name]
-            ref_regions_file = strain_ref_regions_dict[strain_name]
-            # Set the absolute path to, and create the freebayes working directory
-            freebayes_out_dir = os.path.join(strain_folder, 'freebayes')
-            make_path(freebayes_out_dir)
-            # Set the name of the output .vcf file
-            freebayes_out_vcf = os.path.join(freebayes_out_dir, '{sn}.vcf'.format(sn=strain_name))
-            # Create the system call to freebayes-parallel
-            # Use the regions file to allow for parallelism
-            # -E -1 -e 1  -u --report-monomorphic --gvcf --use-best-n-alleles 1
-            freebayes_cmd = 'freebayes-parallel {ref_regions} {threads} --strict-vcf ' \
-                            '--use-best-n-alleles 1 -f {ref_genome} {sorted_bam} > {out_vcf}' \
-                .format(ref_regions=ref_regions_file,
-                        ref_genome=ref_genome,
+            # Set the absolute path, and create the deepvariant working directory
+            deepvariant_dir = os.path.join(strain_folder, 'deepvariant')
+            strain_variant_path[strain_name] = deepvariant_dir
+            make_path(deepvariant_dir)
+            # Create the absolute path to the base name for the outputs. This will be used by parallel to create
+            # all the output files
+            output_example = '{output}_tfrecord'.format(output=os.path.join(deepvariant_dir, strain_name))
+            gvcf_tfrecords = '{output}_gvcf'.format(output=os.path.join(deepvariant_dir, strain_name))
+            strain_gvcf_tfrecords_dict[strain_name] = \
+                '{gvcf_tfrecords}@{threads}.gz'.format(gvcf_tfrecords=gvcf_tfrecords,
+                                                       threads=threads)
+            # Create the system call. This consists of multiple parts:
+            # 1) seq: generates range of numbers from start to end e.g. 0 to threads - 1
+            # 2) parallel: executes commands in parallel. Use the following arguments:
+            # --halt 2: kill all jobs if any job fails, --joblog: logfile of completed jobs, --res: store output
+            # in the supplied folder
+            # 3) docker run: use the deepvariant docker image to process the samples with the following arguments:
+            # --rm: remove the docker container when finished, -v: mount the $HOME directory as a volume in the
+            # container, --task: enables multi-processing by splitting the input, and generating sharded output
+            make_example_cmd = 'seq 0 {threads_minus_1} | ' \
+                               'parallel --halt 2 --joblog {logfile} --res {deepvariant_dir} ' \
+                               'docker run --rm -v {home}:{home} ' \
+                               'gcr.io/deepvariant-docker/deepvariant:latest ' \
+                               '/opt/deepvariant/bin/make_examples --mode calling --ref {ref} --reads {bam} ' \
+                               '--examples {output_example}@{threads}.gz --gvcf {gvcf_tfrecords}@{threads}.gz ' \
+                               '--task {{}}' \
+                .format(threads_minus_1=threads - 1,
+                        logfile=os.path.join(strain_folder, 'log.out'),
+                        deepvariant_dir=deepvariant_dir,
+                        home=home,
+                        ref=ref_genome,
+                        bam=sorted_bam,
+                        output_example=output_example,
                         threads=threads,
-                        sorted_bam=sorted_bam,
-                        out_vcf=freebayes_out_vcf)
-            # Run the system call if the .vcf file does not exist
-            if not os.path.isfile(freebayes_out_vcf):
-                out, err = run_subprocess(freebayes_cmd)
+                        gvcf_tfrecords=gvcf_tfrecords)
+            # Create a list of all the sharded output example files
+            output_examples = glob(os.path.join(deepvariant_dir, '{strain_name}_tfrecord-*.gz'
+                                                .format(strain_name=strain_name)))
+            # Ensure that the final outputs don't already exist
+            vcf_file_name = os.path.join(vcf_path, '{sn}.gvcf.gz'.format(sn=strain_name))
+            if not os.path.isfile(vcf_file_name):
+                # If there are fewer output files than expected, run the system call
+                if len(output_examples) < threads - 1:
+                    run_subprocess(make_example_cmd)
+            # Populate the dictionary with the sorted list of all the sharded files
+            strain_examples_dict[strain_name] = \
+                sorted(glob(os.path.join(deepvariant_dir, '{strain_name}_tfrecord-*.gz'
+                                         .format(strain_name=strain_name))))
+        return strain_examples_dict, strain_variant_path, strain_gvcf_tfrecords_dict
+
+    @staticmethod
+    def deepvariant_call_variants_multiprocessing(strain_variant_path_dict, strain_name_dict, dependency_path,
+                                                  vcf_path, home, threads, logfile):
+        """
+        Create a multiprocessing pool to run deepvariant call_variants concurrently on strains
+        :param strain_variant_path_dict: type DICT: Dictionary of strain name: absolute path to deepvariant output dir
+        :param strain_name_dict: type DICT: Dictionary of strain name: absolute path to strain-specific working dir
+        :param dependency_path: type STR: Absolute path to dependencies folder
+        :param vcf_path: type STR: Absolute path to folder in which all symlinks to .vcf files are to be created
+        :param home: type STR: Absolute path to $HOME
+        :param threads: type INT: Number of threads used in the analyses
+        :param logfile: type STR: Absolute path to logfile basename
+        :return: strain_call_variants_dict: Dictionary of strain name: absolute path to deepvariant call_variants
+        outputs
+        """
+        # Create a multiprocessing pool. Limit the number of processes to the number of threads
+        p = multiprocessing.Pool(processes=threads)
+        # Initialise a dictionary to store the variants output file
+        strain_call_variants_dict = dict()
+        # Create a list of all the strain names
+        strain_list = [strain_name for strain_name in strain_name_dict]
+        # Determine the number of strains present in the analyses
+        list_length = len(strain_list)
+        # Use multiprocessing.Pool.starmap to process the samples in parallel
+        # Supply the list of strains, as well as a list the length of the number of strains of each required variable
+        for strain_call_variants in p.starmap(VCFMethods.deepvariant_call_variants,
+                                              zip(strain_list,
+                                                  [strain_variant_path_dict] * list_length,
+                                                  [strain_name_dict] * list_length,
+                                                  [dependency_path] * list_length,
+                                                  [vcf_path] * list_length,
+                                                  [home] * list_length,
+                                                  [threads] * list_length,
+                                                  [logfile] * list_length)):
+            # Update the dictionary of variant call outputs
+            strain_call_variants_dict.update(strain_call_variants)
+        # Close and join the pool
+        p.close()
+        p.join()
+        return strain_call_variants_dict
+
+    @staticmethod
+    def deepvariant_call_variants(strain_name, strain_variant_path_dict, strain_name_dict, dependency_path, vcf_path,
+                                  home, threads, logfile):
+        """
+        Perform variant calling. Process deepvariant examples files with call_variant
+        :param strain_name: type STR: Name of strain being processed
+        :param strain_variant_path_dict: type DICT: Dictionary of strain name: absolute path to deepvariant output dir
+        :param strain_name_dict: type DICT: Dictionary of strain name: absolute path to strain-specific working dir
+        :param dependency_path: type STR: Absolute path to dependencies folder
+        :param vcf_path: type STR: Absolute path to folder in which all symlinks to .vcf files are to be created
+        :param home: type STR: Absolute path to $HOME
+        :param threads: type INT: Number of threads used in the analyses
+        :param logfile: type STR: Absolute path to logfile basename
+        :return: strain_call_variants_dict: Dictionary of strain name: absolute path to deepvariant call_variants
+        outputs
+        """
+        # Initialise a dictionary to store the absolute path of the call_variants output file
+        strain_call_variants_dict = dict()
+        # Set the absolute path to the deepvariant model to be used by call_variants
+        model = os.path.join(dependency_path, 'deepvariant_model', 'model.ckpt')
+        if strain_name in strain_variant_path_dict:
+            # Extract the necessary variables from dictionaries
+            deepvariant_dir = strain_variant_path_dict[strain_name]
+            strain_folder = strain_name_dict[strain_name]
+            # Set the absolute path of the call_variants output file
+            call_variants_output = os.path.join(deepvariant_dir, '{sn}_call_variants_output_tfrecord.gz'
+                                                .format(sn=strain_name))
+            # Update the dictionary with the file path
+            strain_call_variants_dict[strain_name] = call_variants_output
+            output_example = '{output}_tfrecord'.format(output=os.path.join(deepvariant_dir, strain_name))
+            # Set the system call. Use docker to run call_variants.
+            call_variants_cmd = 'docker run --rm -v {home}:{home} gcr.io/deepvariant-docker/deepvariant:latest ' \
+                                '/opt/deepvariant/bin/call_variants --outfile {output_file} ' \
+                                '--examples {output_example}@{threads}.gz --checkpoint {model}'\
+                .format(home=home,
+                        output_file=call_variants_output,
+                        output_example=output_example,
+                        threads=threads,
+                        model=model)
+            # Run the system call if the output file and the final outputs don't already exist
+            vcf_file_name = os.path.join(vcf_path, '{sn}.gvcf.gz'.format(sn=strain_name))
+            if not os.path.isfile(vcf_file_name) and not os.path.isfile(call_variants_output):
+                out, err = run_subprocess(call_variants_cmd)
                 # Write STDOUT and STDERR to the logfile
                 write_to_logfile(out=out,
                                  err=err,
                                  logfile=logfile,
                                  samplelog=os.path.join(strain_folder, 'log.out'),
                                  sampleerr=os.path.join(strain_folder, 'log.err'))
-            if os.path.isfile(freebayes_out_vcf):
-                # Populate the dictionary with the path to the .vcf file
-                strain_vcf_dict[strain_name] = freebayes_out_vcf
+        return strain_call_variants_dict
+
+    @staticmethod
+    def deepvariant_postprocess_variants(strain_call_variants_dict, strain_variant_path_dict, strain_name_dict,
+                                         strain_reference_abs_path_dict, strain_gvcf_tfrecords_dict, vcf_path,
+                                         home, logfile):
+        """
+        Create .vcf.gz outputs
+        :param strain_call_variants_dict: type DICT: Dictionary of strain name: absolute path to deepvariant
+        call_variants outputs
+        :param strain_variant_path_dict: type DICT: Dictionary of strain name: absolute path to deepvariant output dir
+        :param strain_name_dict: type DICT: Dictionary of strain name: absolute path to strain-specific working dir
+        :param strain_reference_abs_path_dict: type DICT: Dictionary of strain name: absolute path to best reference
+        genome
+        :param strain_gvcf_tfrecords_dict: type DICT: strain_call_variants_dict: Dictionary of strain name:
+        absolute path to deepvariant call_variants outputs
+        :param vcf_path: type STR: Absolute path to folder in which all symlinks to .vcf files are to be created
+        :param home: type STR: Absolute path to $HOME
+        :param logfile: type STR: Absolute path to logfile basename
+        :return: strain_vcf_dict: Dictionary of strain name: absolute path to deepvariant output VCF file
+        """
+        # Initialise a dictionary to store the absolute path of the .vcf.gz output files
+        strain_vcf_dict = dict()
+        for strain_name, call_variants_output in strain_call_variants_dict.items():
+            # Extract the require variables from the dictionaries
+            strain_folder = strain_name_dict[strain_name]
+            deepvariant_dir = strain_variant_path_dict[strain_name]
+            ref_genome = strain_reference_abs_path_dict[strain_name]
+            gvcf_records = strain_gvcf_tfrecords_dict[strain_name]
+            # Set the absolute path to the output file
+            vcf_file = os.path.join(deepvariant_dir, '{sn}.vcf.gz'.format(sn=strain_name))
+            gvcf_file = os.path.join(deepvariant_dir, '{sn}.gvcf.gz'.format(sn=strain_name))
+            # Update the dictionary with the path to the output file
+            strain_vcf_dict[strain_name] = gvcf_file
+            # Set the system call. Use docker to run postprocess_variants
+            postprocess_variants_cmd = 'docker run --rm -v {home}:{home} gcr.io/deepvariant-docker/deepvariant:latest' \
+                                       ' /opt/deepvariant/bin/postprocess_variants --ref {ref} ' \
+                                       '--nonvariant_site_tfrecord_path {gvcf_records} ' \
+                                       '--infile {call_variants_output} --outfile {vcf_file} ' \
+                                       '--gvcf_outfile {gvcf_file}'\
+                .format(home=home,
+                        ref=ref_genome,
+                        gvcf_records=gvcf_records,
+                        call_variants_output=call_variants_output,
+                        vcf_file=vcf_file,
+                        gvcf_file=gvcf_file)
+            # Ensure that the final outputs don't already exist
+            vcf_file_name = os.path.join(vcf_path, '{sn}.gvcf.gz'.format(sn=strain_name))
+            # Run the system call if the output file and the final output file don't exist
+            if not os.path.isfile(vcf_file_name) and not os.path.isfile(gvcf_file):
+                out, err = run_subprocess(postprocess_variants_cmd)
+                # Write STDOUT and STDERR to the logfile
+                write_to_logfile(out=out,
+                                 err=err,
+                                 logfile=logfile,
+                                 samplelog=os.path.join(strain_folder, 'log.out'),
+                                 sampleerr=os.path.join(strain_folder, 'log.err'))
         return strain_vcf_dict
 
     @staticmethod
-    def parse_vcf(strain_vcf_dict):
+    def parse_variants(strain_vcf_dict):
         """
-        Parse the .vcf file with the PyVCF module. Filter positions with QUAL < 150, and count the number of high
-        quality SNPs (QUAL >= 150, and reference length = 1 (not an indel))
-        :param strain_vcf_dict: type DICT: Dictionary of strain name: absolute path to .vcf file
-        :return: strain_num_high_quality_snps_dict: Dictionary of strain name: number of high quality SNPs
-        :return: strain_filtered_vcf_dict: Dictionary of strain name: absolute path to filtered .vcf file
+        Determine the number of SNPs called that pass quality filters
+        :param strain_vcf_dict: type DICT: Dictionary of strain name: absolute path to gVCF file
+        :return: strain_num_high_quality_snps_dict: Dictionary of strain name: number of high quality SNPs present
         """
-        # Initialise dictionaries to store the number of high quality SNPs, and the absolute path to the filtered
-        # .vcf file
+        # Initialise a dictionary to store the number of high quality SNPs
         strain_num_high_quality_snps_dict = dict()
-        strain_filtered_vcf_dict = dict()
         for strain_name, vcf_file in strain_vcf_dict.items():
-            try:
-                # Set the absolute path of the filtered .vcf file (replace the .vcf extension with _filtered.vcf)
-                filtered_vcf = vcf_file.replace('.vcf', '_filtered.vcf')
-                # Create the PyVCF 'Reader' object from the .vcf file
-                vcf_reader = vcf.Reader(open(vcf_file), 'r')
-                # Create a PyVCF 'Writer' object in which records with QUAL >= 150 are stored
-                vcf_writer = vcf.Writer(open(filtered_vcf, 'w'), vcf_reader)
-                # Initialise a count for the number of high quality SNPs
-                high_quality_snps = 0
-                # Iterate through all the records in the .vcf file
-                for record in vcf_reader:
-                    # Only keep SNPs with QUAL values >= 150
-                    if len(record.REF) == 1:
-                        #  Filter by QUAL >= 150
-                        if record.QUAL >= 150:
-                            # Increment the count of the number of high quality SNPs, and keep the record
-                            high_quality_snps += 1
-                            vcf_writer.write_record(record)
-                    # Keep all indels
-                    else:
-                        vcf_writer.write_record(record)
-                # Populate the dictionaries with the number of high quality SNPs, and the path to the filtered .vcf file
-                strain_num_high_quality_snps_dict[strain_name] = high_quality_snps
-                strain_filtered_vcf_dict[strain_name] = filtered_vcf
-            except FileNotFoundError:
-                pass
-        return strain_num_high_quality_snps_dict, strain_filtered_vcf_dict
+            strain_num_high_quality_snps_dict[strain_name] = int()
+            # Ensure that the gVCF file was created
+            if os.path.isfile(vcf_file):
+                # Use gzip to open the compressed gVCF file
+                with gzip.open(vcf_file, 'r') as gvcf:
+                    for line in gvcf:
+                        # Convert the line to a string from bytes
+                        line = line.decode()
+                        # Skip the header section
+                        if line.startswith('#CHROM'):
+                            for subline in gvcf:
+                                subline = subline.decode()
+                                # Split the line based on the columns
+                                ref_genome, pos, id_stat, ref, alt_string, qual, filter_stat, info_string, \
+                                    format_stat, strain = subline.split('\t')
+                                # Initialise a string to hold the clean 'alt_string'
+                                alt = str()
+                                # Matches will have the following alt_string format: <*>. For SNP calls, the alt_string
+                                # will have the following format: G,<*>. While insertions will look like: TGCC,<*>.
+                                # Replace the <*>, and split on the comma
+                                alt_split = alt_string.replace('<*>', '').split(',')
+                                # If alt_split has a length greater than one e.g. not a match, which will look like
+                                # [''], while a SNP and an insertion will be ['G', ''] and ['TGCC', ''], respectively
+                                if len(alt_split) > 1:
+                                    # Iterate through the list, and ensure that only the 'G' or the 'TGCC' are examined
+                                    # rather than the empty ''
+                                    for sub_alt in alt_split:
+                                        if sub_alt:
+                                            # Set the alt string as the 'G' or the 'TGCC'
+                                            alt = sub_alt
+                                # Filter the lines to find the high quality SNPs
+                                # They must have a 'PASS' in the filter column. As well both the reference and query
+                                # base must be of length one (a SNP rather than an indel), and the quality must pass
+                                # the threshold
+                                if filter_stat == 'PASS' and len(ref) == 1 and len(alt) == 1 and float(qual) > 35:
+                                    # Add the passing SNP to the dictionary
+                                    strain_num_high_quality_snps_dict[strain_name] += 1
+        return strain_num_high_quality_snps_dict
 
     @staticmethod
-    def copy_vcf_files(strain_filtered_vcf_dict, vcf_path):
+    def copy_vcf_files(strain_vcf_dict, vcf_path):
         """
         Create a folder with copies of the .vcf files
-        :param strain_filtered_vcf_dict: type DICT: Dictionary of strain name: absolute path to .vcf files
-        :param vcf_path: type STR: Absolute path to folder in which all symlinks to .vcf files are to be created
+        :param strain_vcf_dict: type DICT: Dictionary of strain name: absolute path to .vcf files
+        :param vcf_path: type STR: Absolute path to folder in which all .gvcf.gz files are to be copied
         :return:
         """
         make_path(vcf_path)
-        for strain_name, vcf_file in strain_filtered_vcf_dict.items():
+        for strain_name, vcf_file in strain_vcf_dict.items():
+            # Extract the file name of the gVCF file
             vcf_file_name = os.path.basename(vcf_file)
             if os.path.isfile(vcf_file):
                 shutil.copyfile(src=vcf_file,
