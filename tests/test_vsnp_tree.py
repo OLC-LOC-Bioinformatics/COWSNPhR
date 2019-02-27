@@ -93,10 +93,14 @@ def test_accession_species():
 
 
 def test_vcf_load():
-    global strain_parsed_vcf_dict, strain_best_ref_dict
-    strain_parsed_vcf_dict, strain_best_ref_dict = VSNPTreeMethods.load_vcf(strain_vcf_dict=strain_vcf_dict)
+    global strain_parsed_vcf_dict, strain_best_ref_dict, strain_best_ref_set_dict
+    strain_parsed_vcf_dict, strain_best_ref_dict, strain_best_ref_set_dict = \
+        VSNPTreeMethods.load_vcf(strain_vcf_dict=strain_vcf_dict,
+                                 threads=threads)
     for strain_name, best_ref in strain_best_ref_dict.items():
         assert best_ref in ['NC_002945.4', 'NC_017250.1', 'NC_017251.1']
+    assert strain_best_ref_set_dict['13-1941'] == {'NC_002945.4'}
+    assert strain_best_ref_set_dict['B13-0234'] == {'NC_017250.1', 'NC_017251.1'}
     assert strain_parsed_vcf_dict['13-1941'][1057]['CHROM'] == 'NC_002945.4'
     assert strain_parsed_vcf_dict['13-1950'][29470]['FILTER'] == 'DELETION'
     assert strain_parsed_vcf_dict['13-1950'][1057]['STATS']['GT'] == '1/1'
@@ -153,17 +157,21 @@ def test_extract_defining_snps():
 
 
 def test_load_snp_positions():
-    global ref_snp_positions, strain_snp_positions
-    ref_snp_positions, strain_snp_positions = \
+    global consolidated_ref_snp_positions, strain_snp_positions, ref_snp_positions
+    consolidated_ref_snp_positions, strain_snp_positions, ref_snp_positions = \
         VSNPTreeMethods.load_snp_positions(strain_parsed_vcf_dict=strain_parsed_vcf_dict,
                                            strain_consolidated_ref_dict=strain_consolidated_ref_dict)
-    assert ref_snp_positions['NC_002945v4'][4480] == 'T'
-    assert ref_snp_positions['NC_017251-NC_017250'][1197913] == 'T'
-    assert ref_snp_positions['NC_017251-NC_017250'][16405] == 'C'
-    assert ref_snp_positions['NC_017251-NC_017250'][50509] == 'A'
+    assert consolidated_ref_snp_positions['NC_002945v4'][4480] == 'T'
+    assert consolidated_ref_snp_positions['NC_017251-NC_017250'][1197913] == 'T'
+    assert consolidated_ref_snp_positions['NC_017251-NC_017250'][16405] == 'C'
+    assert consolidated_ref_snp_positions['NC_017251-NC_017250'][50509] == 'A'
     assert sorted(strain_snp_positions['13-1941'])[0] == 1057
     assert sorted(strain_snp_positions['B13-0234'])[0] == 8810
     assert sorted(strain_snp_positions['13-1950'])[1] == 4480
+    assert ref_snp_positions['NC_002945.4'][4480] == 'T'
+    assert ref_snp_positions['NC_017250.1'][1197913] == 'T'
+    assert ref_snp_positions['NC_017250.1'][16405] == 'C'
+    assert ref_snp_positions['NC_017251.1'][50509] == 'A'
 
 
 def test_determine_groups():
@@ -194,7 +202,7 @@ def test_load_snp_sequence():
                                           group_positions_set=group_positions_set,
                                           strain_groups=strain_groups,
                                           strain_species_dict=strain_species_dict,
-                                          ref_snp_positions=ref_snp_positions)
+                                          consolidated_ref_snp_positions=consolidated_ref_snp_positions)
     assert group_strain_snp_sequence['af']['All']['13-1941'][1057] == 'G'
     assert len(group_strain_snp_sequence['af']['All']['13-1941']) == 516
     assert group_strain_snp_sequence['af']['All']['13-1941'][948023] == 'M'
@@ -203,7 +211,7 @@ def test_load_snp_sequence():
 
 
 def test_create_multifasta():
-    global group_folders, species_folders,group_fasta_dict, fasta_path
+    global group_folders, species_folders, group_fasta_dict, fasta_path
     fasta_path = os.path.join(file_path, 'alignments')
     group_folders, species_folders, group_fasta_dict = \
         VSNPTreeMethods.create_multifasta(group_strain_snp_sequence=group_strain_snp_sequence,
@@ -216,16 +224,27 @@ def test_create_multifasta():
 
 
 def test_load_genbank_file():
-    global best_ref_gbk_dict
-    best_ref_gbk_dict = VSNPTreeMethods.load_genbank_file(reference_link_path_dict=reference_link_path_dict,
-                                                          strain_best_ref_dict=strain_best_ref_dict,
-                                                          dependency_path=dependency_path)
-    for key, value in best_ref_gbk_dict['NC_002945.4'].items():
-        for feature in value.features:
-            assert feature.type == 'source'
-            assert str(feature.location) == '[0:4349904](+)'
-            # Only test the first feature
-            break
+    global full_best_ref_gbk_dict
+    full_best_ref_gbk_dict = VSNPTreeMethods.load_genbank_file(reference_link_path_dict=reference_link_path_dict,
+                                                               strain_best_ref_set_dict=strain_best_ref_set_dict,
+                                                               dependency_path=dependency_path)
+    assert full_best_ref_gbk_dict['NC_002945.4'][0].type == 'CDS'
+    assert full_best_ref_gbk_dict['NC_017251.1'][28315].type == 'tRNA'
+    assert full_best_ref_gbk_dict['NC_017250.1'][1104133].qualifiers['gene'] == ['rrf']
+
+
+def test_annotate_snps():
+    global species_group_annotated_snps_dict
+    species_group_annotated_snps_dict = \
+        VSNPTreeMethods.annotate_snps(group_strain_snp_sequence=group_strain_snp_sequence,
+                                      full_best_ref_gbk_dict=full_best_ref_gbk_dict,
+                                      strain_best_ref_set_dict=strain_best_ref_set_dict,
+                                      ref_snp_positions=ref_snp_positions)
+    assert species_group_annotated_snps_dict['af']['Mbovis-01']['NC_002945.4'][1057]['locus'] == 'BQ2027_MB0001'
+    assert species_group_annotated_snps_dict['af']['Mbovis-01A3']['NC_002945.4'][4480]['product'] == \
+        'hypothetical protein'
+    assert species_group_annotated_snps_dict['suis1']['All']['NC_017250.1'][579895]['gene'] == 'gatA'
+    assert species_group_annotated_snps_dict['suis1']['All']['NC_017251.1'][633244]['product'] == 'porin'
 
 
 def test_vsnp_tree_run():

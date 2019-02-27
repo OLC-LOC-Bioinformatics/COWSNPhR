@@ -6,3 +6,4 @@ dependencies/bi/salmonella/heidelberg-SL476/script_dependents/Thumbs.db
 .coverage
 dist/
 *.egg-info
+*holding*

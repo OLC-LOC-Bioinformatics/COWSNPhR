@@ -4,6 +4,7 @@ from Bio.SeqRecord import SeqRecord
 from Bio.Alphabet import IUPAC
 from Bio.Seq import Seq
 from Bio import SeqIO
+import multiprocessing
 from glob import glob
 import xlsxwriter
 import shutil
@@ -70,9 +71,10 @@ class VSNPTreeMethods(object):
         return accession_species_dict
 
     @staticmethod
-    def load_vcf(strain_vcf_dict):
+    def load_vcf_library(strain_vcf_dict):
         """
-        Load the gVCF files into a dictionary
+        Use PyVCF to load the gVCF files into dictionaries. This seems very slow, so I am not using this now. Maybe I'm
+        doing something wrong?
         :param strain_vcf_dict: type DICT: Dictionary of strain name: absolute path to gVCF file
         :return: parsed_vcf_dict: Dictionary of strain name: key: value pairs CHROM': ref_genome, 'REF': ref base,
             'ALT': alt base, 'QUAL': quality score, 'LENGTH': length of feature, 'FILTER': deepvariant filter call,
@@ -80,6 +82,101 @@ class VSNPTreeMethods(object):
         :return: strain_best_ref_dict: Dictionary of strain name: reference genome parsed from gVCF file. Note that
             this will select only a single 'best reference genome' even if there are multiple contigs in the file
             against which this strain was reference mapped
+        :return: strain_best_ref_set_dict: Dictionary of strain name: all reference genomes parsed from gVCF file
+        """
+        # Initialise dictionaries to store the parsed gVCF outputs and the closest reference genome
+        parsed_vcf_dict = dict()
+        strain_best_ref_dict = dict()
+        strain_best_ref_set_dict = dict()
+        for strain_name, vcf_file in strain_vcf_dict.items():
+            parsed_vcf_dict[strain_name] = dict()
+            # Create the PyVCF 'Reader' object from the .gvcf file
+            vcf_reader = vcf.Reader(filename=vcf_file)
+            # Iterate through all the records in the .vcf file
+            for record in vcf_reader:
+                # print(record.POS)
+                # Initialise the dictionary as required
+                if strain_name not in strain_best_ref_dict:
+                    strain_best_ref_dict[strain_name] = record.CHROM
+                    strain_best_ref_set_dict[strain_name] = {record.CHROM}
+                else:
+                    strain_best_ref_set_dict[strain_name].add(record.CHROM)
+                # Initialise the length of the list to 1
+                alt_length = 1
+                # Substitute out <*> for the reference call in the record.ALT list
+                record.ALT = [str(entry).replace('<*>', record.REF) for entry in record.ALT]
+                # Check if the length of the list is greater than 1 i.e. a SNP call
+                if len(record.ALT) > 1:
+                    for entry in record.ALT:
+                        if len(entry) > 1:
+                            alt_length = len(entry)
+                # SNPs must have a deepvariant filter of 'PASS', be of length one, and have a quality
+                # score above the threshold
+                if record.FILTER is not None and record.FILTER != ['RefCall'] and len(record.REF) == 1 \
+                        and alt_length == 1 and record.QUAL > 30:
+                    record.FILTER = 'PASS'
+                    parsed_vcf_dict[strain_name][record.POS] = record
+                # Insertions must still have a deepvariant filter of 'PASS', but must have a length
+                # greater than one
+                elif record.FILTER is not None and record.FILTER != ['RefCall'] and len(record.REF) == 1:
+                    record.FILTER = 'INSERTION'
+                    parsed_vcf_dict[strain_name][record.POS] = record
+                # If the position in the 'info' field does not match pos, and the minimum depth of a gVCF
+                # block is 0, this is considered a deletion
+                elif record.FILTER is None and record.INFO != record.POS and record.samples[0]['MIN_DP'] == '0':
+                    # Iterate through the range of the deletion, and populate the dictionary for each
+                    # position encompassed by this range (add +1 due to needing to include the final
+                    # position in the dictionary)
+                    record.FILTER = 'DELETION'
+                    for i in range(record.POS, record.INFO + 1):
+                        parsed_vcf_dict[strain_name][i] = record
+        return parsed_vcf_dict, strain_best_ref_dict, strain_best_ref_set_dict
+
+    @staticmethod
+    def load_vcf(strain_vcf_dict, threads):
+        """
+        Create a multiprocessing pool to parse gVCF files concurrently
+        :param strain_vcf_dict:
+        :param threads:
+        :return:
+        """
+        # Initialise dictionaries to store the parsed gVCF outputs and the closest reference genome
+        parsed_vcf_dict = dict()
+        strain_best_ref_dict = dict()
+        strain_best_ref_set_dict = dict()
+        # Create a multiprocessing pool. Limit the number of processes to the number of threads
+        p = multiprocessing.Pool(processes=threads)
+        # Create a list of all the strain names
+        strain_list = [strain_name for strain_name in strain_vcf_dict]
+        # Determine the number of strains present in the analyses
+        list_length = len(strain_list)
+        # Use multiprocessing.Pool.starmap to process the samples in parallel
+        # Supply the list of strains, as well as a list the length of the number of strains of each required variable
+        for parsed_vcf, strain_best_ref, strain_best_ref_set in p.starmap(VSNPTreeMethods.load_vcf_multiprocessing,
+                                                                          zip(strain_list,
+                                                                              [strain_vcf_dict] * list_length)):
+            # Update the dictionaries
+            parsed_vcf_dict.update(parsed_vcf)
+            strain_best_ref_dict.update(strain_best_ref)
+            strain_best_ref_set_dict.update(strain_best_ref_set)
+        # Close and join the pool
+        p.close()
+        p.join()
+        return parsed_vcf_dict, strain_best_ref_dict, strain_best_ref_set_dict
+
+    @staticmethod
+    def load_vcf_multiprocessing(strain_name, strain_vcf_dict):
+        """
+        Load the gVCF files into a dictionary
+        :param strain_name: type STR: Name of strain being processed
+        :param strain_vcf_dict: type DICT: Dictionary of strain name: absolute path to gVCF file
+        :return: parsed_vcf_dict: Dictionary of strain name: key: value pairs CHROM': ref_genome, 'REF': ref base,
+            'ALT': alt base, 'QUAL': quality score, 'LENGTH': length of feature, 'FILTER': deepvariant filter call,
+            'STATS': dictionary of format data
+        :return: strain_best_ref_dict: Dictionary of strain name: reference genome parsed from gVCF file. Note that
+            this will select only a single 'best reference genome' even if there are multiple contigs in the file
+            against which this strain was reference mapped
+        :return: strain_best_ref_set_dict: Dictionary of strain name: all reference genomes parsed from gVCF file
         """
         '''
         gVCF header information
@@ -102,103 +199,107 @@ class VSNPTreeMethods(object):
         # Initialise dictionaries to store the parsed gVCF outputs and the closest reference genome
         parsed_vcf_dict = dict()
         strain_best_ref_dict = dict()
-        for strain_name, vcf_file in strain_vcf_dict.items():
-            parsed_vcf_dict[strain_name] = dict()
-            # Use gzip to open the compressed file
-            with gzip.open(vcf_file, 'r') as gvcf:
-                for line in gvcf:
-                    # Convert the line to string from bytes
-                    line = line.decode()
-                    # Skip all the headers
-                    if line.startswith('#CHROM'):
-                        for subline in gvcf:
-                            # Convert to string
-                            subline = subline.decode()
-                            # Split the line on tabs. The components correspond to the #CHROM comment above
-                            ref_genome, pos, id_stat, ref, alt_string, qual, filter_stat, info_string, format_stat, \
-                                strain = subline.split('\t')
-                            # The 'Format' entry consists of several components: GT:GQ:DP:AD:VAF:PL for SNP positions,
-                            # and GT:GQ:MIN_DP:PL for all other entries (see quoted information above)
-                            # Perform a dictionary comprehension to associate each format component with its
-                            # corresponding 'strain' component e.g. FORMAT: GT:GQ:DP:AD:VAF:PL
-                            # 'STRAIN' 1/1:54:18:0,18,0:1,0:60,55,0,990,990,990 yields'GT': '1/1', 'GQ': 54, 'DP': '18',
-                            # 'AD': 18:0,18,0, 'VAF': 1,0, 'PL': 60,55,0,990,990,990
-                            format_dict = {value: strain.split(':')[i].rstrip()
-                                           for i, value in enumerate(format_stat.split(':'))}
-                            # Initialise the dictionary as required
-                            if strain_name not in strain_best_ref_dict:
-                                strain_best_ref_dict[strain_name] = ref_genome
-                            # The 'info' string will look like this for non-SNP calls: END=1056 (and just a . for SNPs)
-                            # Strip off the 'END='
-                            if info_string.startswith('END='):
-                                info = info_string.split('END=')[1]
-                            else:
-                                info = pos
-                            # Initialise a string to store the sanitised 'ALT" call
-                            alt = str()
-                            # For SNP calls, the alt_string will look like this: G,<*>, or A,G,<*>, while matches are
-                            # simply <*>. Replace the <*> with the reference call, and create a list by splitting on
-                            # commas
-                            alt_split = alt_string.replace('<*>', ref).split(',')
-                            # Initialise the length of the list to 1
-                            alt_length = 1
-                            # Check if the length of the list is greater than 1 i.e. a SNP call
-                            if len(alt_split) > 1:
-                                # Iterate through the list
-                                for sub_alt in alt_split:
-                                    # Add each allele to the alt string e.g. initial G,<*> -> G, T -> GT, and A,G,<*> ->
-                                    # A, G, C -> AGC
-                                    alt += sub_alt
-                                    # If there is an insertion, e.g. CGAGACCG,<*>, set alt_length to the length of the
-                                    # insertion
-                                    if len(sub_alt) > alt_length:
-                                        alt_length = len(sub_alt)
-                            # Typecast pos to be an integer
-                            pos = int(pos)
-                            # SNPs must have a deepvariant filter of 'PASS', be of length one, and have a quality
-                            # score above the threshold
-                            if filter_stat == 'PASS' and len(ref) == 1 and alt_length == 1 and float(qual) > 30:
-                                # Populate the dictionary with the required key: value pairs
-                                parsed_vcf_dict[strain_name][pos] = {
+        strain_best_ref_set_dict = dict()
+        vcf_file = strain_vcf_dict[strain_name]
+        parsed_vcf_dict[strain_name] = dict()
+        # Use gzip to open the compressed file
+        with gzip.open(vcf_file, 'r') as gvcf:
+            for line in gvcf:
+                # Convert the line to string from bytes
+                line = line.decode()
+                # Skip all the headers
+                if line.startswith('#CHROM'):
+                    for subline in gvcf:
+                        # Convert to string
+                        subline = subline.decode()
+                        # Split the line on tabs. The components correspond to the #CHROM comment above
+                        ref_genome, pos, id_stat, ref, alt_string, qual, filter_stat, info_string, format_stat, \
+                            strain = subline.split('\t')
+                        # The 'Format' entry consists of several components: GT:GQ:DP:AD:VAF:PL for SNP positions,
+                        # and GT:GQ:MIN_DP:PL for all other entries (see quoted information above)
+                        # Perform a dictionary comprehension to associate each format component with its
+                        # corresponding 'strain' component e.g. FORMAT: GT:GQ:DP:AD:VAF:PL
+                        # 'STRAIN' 1/1:54:18:0,18,0:1,0:60,55,0,990,990,990 yields'GT': '1/1', 'GQ': 54, 'DP': '18',
+                        # 'AD': 18:0,18,0, 'VAF': 1,0, 'PL': 60,55,0,990,990,990
+                        format_dict = {value: strain.split(':')[i].rstrip()
+                                       for i, value in enumerate(format_stat.split(':'))}
+                        # Initialise the dictionary as required
+                        if strain_name not in strain_best_ref_dict:
+                            strain_best_ref_dict[strain_name] = ref_genome
+                            strain_best_ref_set_dict[strain_name] = {ref_genome}
+                        else:
+                            strain_best_ref_set_dict[strain_name].add(ref_genome)
+                        # The 'info' string will look like this for non-SNP calls: END=1056 (and just a . for SNPs)
+                        # Strip off the 'END='
+                        if info_string.startswith('END='):
+                            info = info_string.split('END=')[1]
+                        else:
+                            info = pos
+                        # Initialise a string to store the sanitised 'ALT" call
+                        alt = str()
+                        # For SNP calls, the alt_string will look like this: G,<*>, or A,G,<*>, while matches are
+                        # simply <*>. Replace the <*> with the reference call, and create a list by splitting on
+                        # commas
+                        alt_split = alt_string.replace('<*>', ref).split(',')
+                        # Initialise the length of the list to 1
+                        alt_length = 1
+                        # Check if the length of the list is greater than 1 i.e. a SNP call
+                        if len(alt_split) > 1:
+                            # Iterate through the list
+                            for sub_alt in alt_split:
+                                # Add each allele to the alt string e.g. initial G,<*> -> G, T -> GT, and A,G,<*> ->
+                                # A, G, C -> AGC
+                                alt += sub_alt
+                                # If there is an insertion, e.g. CGAGACCG,<*>, set alt_length to the length of the
+                                # insertion
+                                if len(sub_alt) > alt_length:
+                                    alt_length = len(sub_alt)
+                        # Typecast pos to be an integer
+                        pos = int(pos)
+                        # SNPs must have a deepvariant filter of 'PASS', be of length one, and have a quality
+                        # score above the threshold
+                        if filter_stat == 'PASS' and len(ref) == 1 and alt_length == 1 and float(qual) > 30:
+                            # Populate the dictionary with the required key: value pairs
+                            parsed_vcf_dict[strain_name][pos] = {
+                                'CHROM': ref_genome,
+                                'REF': ref,
+                                'ALT': alt,
+                                'QUAL': qual,
+                                'LENGTH': 1,
+                                'FILTER': filter_stat,
+                                'STATS': format_dict
+                            }
+                        # Insertions must still have a deepvariant filter of 'PASS', but must have a length
+                        # greater than one
+                        elif filter_stat == 'PASS' and alt_length > 1:
+                            parsed_vcf_dict[strain_name][pos] = {
+                                'CHROM': ref_genome,
+                                'REF': ref,
+                                'ALT': alt,
+                                'QUAL': qual,
+                                'LENGTH': alt_length,
+                                'FILTER': 'INSERTION',
+                                'STATS': format_dict
+                            }
+                        # If the position in the 'info' field does not match pos, and the minimum depth of a gVCF
+                        # block is 0, this is considered a deletion
+                        elif int(info) != pos and format_dict['MIN_DP'] == '0':
+                            # Subtract the starting position (pos) from the final position (info)
+                            length = int(info) - pos
+                            # Iterate through the range of the deletion, and populate the dictionary for each
+                            # position encompassed by this range (add +1 due to needing to include the final
+                            # position in the dictionary)
+                            for i in range(int(pos), int(info) + 1):
+                                parsed_vcf_dict[strain_name][i] = {
                                     'CHROM': ref_genome,
                                     'REF': ref,
                                     'ALT': alt,
                                     'QUAL': qual,
-                                    'LENGTH': 1,
-                                    'FILTER': filter_stat,
+                                    'LENGTH': length,
+                                    'FILTER': 'DELETION',
                                     'STATS': format_dict
                                 }
-                            # Insertions must still have a deepvariant filter of 'PASS', but must have a length
-                            # greater than one
-                            elif filter_stat == 'PASS' and alt_length > 1:
-                                parsed_vcf_dict[strain_name][pos] = {
-                                    'CHROM': ref_genome,
-                                    'REF': ref,
-                                    'ALT': alt,
-                                    'QUAL': qual,
-                                    'LENGTH': alt_length,
-                                    'FILTER': 'INSERTION',
-                                    'STATS': format_dict
-                                }
-                            # If the position in the 'info' field does not match pos, and the minimum depth of a gVCF
-                            # block is 0, this is considered a deletion
-                            elif int(info) != pos and format_dict['MIN_DP'] == '0':
-                                # Subtract the starting position (pos) from the final position (info)
-                                length = int(info) - pos
-                                # Iterate through the range of the deletion, and populate the dictionary for each
-                                # position encompassed by this range (add +1 due to needing to include the final
-                                # position in the dictionary)
-                                for i in range(int(pos), int(info) + 1):
-                                    parsed_vcf_dict[strain_name][i] = {
-                                        'CHROM': ref_genome,
-                                        'REF': ref,
-                                        'ALT': alt,
-                                        'QUAL': qual,
-                                        'LENGTH': length,
-                                        'FILTER': 'DELETION',
-                                        'STATS': format_dict
-                                    }
-        return parsed_vcf_dict, strain_best_ref_dict
+        return parsed_vcf_dict, strain_best_ref_dict, strain_best_ref_set_dict
 
     @staticmethod
     def determine_ref_species(strain_best_ref_dict, accession_species_dict):
@@ -325,26 +426,30 @@ class VSNPTreeMethods(object):
         reference sequence
         :param strain_parsed_vcf_dict: type DICT: Dictionary of strain name: dictionary of parsed VCF data
         :param strain_consolidated_ref_dict: type DICT: Dictionary of strain name: extracted reference genome name
-        :return: ref_snp_positions: Dictionary of reference name: absolute position: reference base call
+        :return: ref_snp_positions: Dictionary of reference chromosome name: absolute position: reference base call
         :return: strain_snp_positions: Dictionary of strain name: all strain-specific SNP positions
         """
         # Initialise dictionaries to store the SNP positions
-        ref_snp_positions = dict()
+        consolidated_ref_snp_positions = dict()
         strain_snp_positions = dict()
+        ref_snp_positions = dict()
         for strain_name, vcf_dict in strain_parsed_vcf_dict.items():
             best_ref = strain_consolidated_ref_dict[strain_name]
             strain_snp_positions[strain_name] = list()
             # Initialise the reference genome key as required
-            if best_ref not in ref_snp_positions:
-                ref_snp_positions[best_ref] = dict()
+            if best_ref not in consolidated_ref_snp_positions:
+                consolidated_ref_snp_positions[best_ref] = dict()
             # Iterate through all the positions
             for pos, pos_dict in vcf_dict.items():
+                if pos_dict['CHROM'] not in ref_snp_positions:
+                    ref_snp_positions[pos_dict['CHROM']] = dict()
                 # Only consider locations that are called 'PASS' in the dictionary
                 if pos_dict['FILTER'] == 'PASS':
                     # Populate the dictionary with the position and the reference sequence at that position
-                    ref_snp_positions[best_ref][pos] = pos_dict['REF']
+                    consolidated_ref_snp_positions[best_ref][pos] = pos_dict['REF']
+                    ref_snp_positions[pos_dict['CHROM']][pos] = pos_dict['REF']
                     strain_snp_positions[strain_name].append(pos)
-        return ref_snp_positions, strain_snp_positions
+        return consolidated_ref_snp_positions, strain_snp_positions, ref_snp_positions
 
     @staticmethod
     def determine_groups(strain_snp_positions, defining_snp_dict):
@@ -406,7 +511,7 @@ class VSNPTreeMethods(object):
 
     @staticmethod
     def load_snp_sequence(strain_parsed_vcf_dict, strain_consolidated_ref_dict, group_positions_set, strain_groups,
-                          strain_species_dict, ref_snp_positions):
+                          strain_species_dict, consolidated_ref_snp_positions):
         """
         Parse the gVCF-derived dictionaries to determine the strain-specific sequence at every SNP position for every
         group
@@ -417,7 +522,7 @@ class VSNPTreeMethods(object):
         :param strain_groups: type DICT: Dictionary of strain name: list of group(s) for which the strain contains the
         defining SNP
         :param strain_species_dict: type DICT: Dictionary of strain name: species code
-        :param ref_snp_positions: type DICT: Dictionary of reference name: absolute position: reference base call
+        :param consolidated_ref_snp_positions: type DICT: Dictionary of reference name: absolute position: reference base call
         :return: group_strain_snp_sequence: Dictionary of strain name: species code: group name: strain name: position:
             strain-specific sequence
         """
@@ -465,7 +570,7 @@ class VSNPTreeMethods(object):
                 for pos in sorted(position_set):
                     # Include the reference position if necessary
                     if write_ref:
-                        ref_pos = ref_snp_positions[best_ref][pos]
+                        ref_pos = consolidated_ref_snp_positions[best_ref][pos]
                         group_strain_snp_sequence[species][group][best_ref][pos] = ref_pos
                     # gVCF blocks will compress stretches of normal matches. I haven't added these regions to the
                     # dictionary, so these positions will yield KeyErrors
@@ -489,7 +594,8 @@ class VSNPTreeMethods(object):
                                 group_strain_snp_sequence[species][group][strain_name][pos] = pos_dict['ALT'][0]
                     # If the entry isn't in the dictionary, it is because it matches the reference sequence
                     except KeyError:
-                        group_strain_snp_sequence[species][group][strain_name][pos] = ref_snp_positions[best_ref][pos]
+                        group_strain_snp_sequence[species][group][strain_name][pos] \
+                            = consolidated_ref_snp_positions[best_ref][pos]
         return group_strain_snp_sequence
 
     @staticmethod
@@ -543,27 +649,106 @@ class VSNPTreeMethods(object):
         return group_folders, species_folders, group_fasta_dict
 
     @staticmethod
-    def load_genbank_file(reference_link_path_dict, strain_best_ref_dict, dependency_path):
+    def load_genbank_file(reference_link_path_dict, strain_best_ref_set_dict, dependency_path):
         """
         Use SeqIO to parse the best reference genome GenBank file for annotating SNP locations
         :param reference_link_path_dict: type DICT: Dictionary of strain name: relative path to reference genome
         dependency folder
-        :param strain_best_ref_dict: type DICT: Dictionary of strain name: extracted reference genome name
+        :param strain_best_ref_set_dict: type DICT: Dictionary of strain name: set of strain-specific reference genomes
         :param dependency_path: type STR: Absolute path to dependencies
-        :return: best_ref_gbk_dict: Dictionary of best ref: SeqIO parsed GenBank file-sourced records from closest
-        reference genome
+        :return: full_best_ref_gbk_dict: Dictionary of best ref: ref position: SeqIO parsed GenBank file-sourced
+        records from closest reference genome for that position
         """
         # Initialise a dictionary to store the SeqIO parsed GenBank files
         best_ref_gbk_dict = dict()
         for strain_name, best_ref_path in reference_link_path_dict.items():
             # Extract the species code from the dictionary
-            best_ref = strain_best_ref_dict[strain_name]
-            gbk_file = glob(os.path.join(
-                dependency_path, best_ref_path, '{br}*.gbk'.format(br=os.path.splitext(best_ref)[0])))[0]
-            # Only parse the file if it has not already been parsed
-            if best_ref not in best_ref_gbk_dict:
-                # Use SeqIO to first parse the GenBank file, and convert the parsed object to a dictionary
-                gbk_dict = SeqIO.to_dict(SeqIO.parse(gbk_file, "genbank"))
-                # Add the GenBank dictionary to the best reference-specific dictionary
-                best_ref_gbk_dict[best_ref] = gbk_dict
-        return best_ref_gbk_dict
+            best_ref_set = strain_best_ref_set_dict[strain_name]
+            for best_ref in best_ref_set:
+                gbk_file = glob(os.path.join(
+                    dependency_path, best_ref_path, '{br}*.gbk'.format(br=os.path.splitext(best_ref)[0])))[0]
+                # Only parse the file if it has not already been parsed
+                if best_ref not in best_ref_gbk_dict:
+                    # Use SeqIO to first parse the GenBank file, and convert the parsed object to a dictionary
+                    gbk_dict = SeqIO.to_dict(SeqIO.parse(gbk_file, "genbank"))
+                    # Add the GenBank dictionary to the best reference-specific dictionary
+                    best_ref_gbk_dict[best_ref] = gbk_dict
+        # Initialise a dictionary to store all the positions, and associated information
+        full_best_ref_gbk_dict = dict()
+        for best_ref, gbk_dict in best_ref_gbk_dict.items():
+            full_best_ref_gbk_dict[best_ref] = dict()
+            for ref_name, record in gbk_dict.items():
+                for feature in record.features:
+                    # Ignore the full record
+                    if feature.type != 'source':
+                        # Iterate through the full length of the feature, and add each position to the dictionary
+                        for i in range(int(feature.location.start), int(feature.location.end) + 1):
+                            full_best_ref_gbk_dict[best_ref][i] = feature
+        return full_best_ref_gbk_dict
+
+    @staticmethod
+    def annotate_snps(group_strain_snp_sequence, full_best_ref_gbk_dict, strain_best_ref_set_dict, ref_snp_positions):
+        """
+        Use GenBank records to annotate each SNP with 'gene', 'locus', and 'product' details
+        :param group_strain_snp_sequence: type DICT: Dictionary of species: group: strain name: position: sequence
+        :param full_best_ref_gbk_dict: type DICT: Dictionary of best ref: ref position: SeqIO parsed GenBank
+        file-sourced records from closest reference genome for that position
+        :param strain_best_ref_set_dict: type DICT: Dictionary of strain name: set of strain-specific reference genomes
+        :param ref_snp_positions: type DICT: Dictionary of reference chromosome name: absolute position: reference base
+         call
+        :return: species_group_annotated_snps_dict: Dictionary of species code: group name: reference chromosome:
+            reference position: annotation dictionary
+        """
+        # Initialise a dictionary to store the annotations for the group-specific SNPs
+        species_group_annotated_snps_dict = dict()
+        for species, group_dict in group_strain_snp_sequence.items():
+            # Initialise the key in the dictionary if necessary
+            if species not in species_group_annotated_snps_dict:
+                species_group_annotated_snps_dict[species] = dict()
+            for group, strain_dict in group_dict.items():
+                if group not in species_group_annotated_snps_dict[species]:
+                    species_group_annotated_snps_dict[species][group] = dict()
+                for strain_name, pos_dict in strain_dict.items():
+                    if strain_name in strain_best_ref_set_dict:
+                        # Extract the set of all reference chromosomes used in the reference mapping
+                        ref_set = strain_best_ref_set_dict[strain_name]
+                        for ref in sorted(ref_set):
+                            # As the reference only needs to be added to the dictionary once, ensure that it is not
+                            # present before continuing
+                            if ref not in species_group_annotated_snps_dict[species][group]:
+                                species_group_annotated_snps_dict[species][group][ref] = dict()
+                                # gbk_records = best_ref_gbk_dict[ref]
+                                gbk_pos_dict = full_best_ref_gbk_dict[ref]
+                                for pos in pos_dict:
+                                    # Ensure that the position is in the specific chromosome being considered e.g.
+                                    # 'NC_017250.1' vs 'NC_017251.1'
+                                    if pos in ref_snp_positions[ref]:
+                                        species_group_annotated_snps_dict[species][group][ref][pos] = dict()
+                                        # Non-coding regions will not be present in the dictionary
+                                        try:
+                                            # Extract the SeqIO-parsed GenBank feature from the GenBank record
+                                            # dictionary
+                                            feature = gbk_pos_dict[pos]
+                                            # Populate the 'locus', 'gene', and 'product' key: value pairs. Extract
+                                            # the values from the feature.qualifiers OrderedDict list
+                                            species_group_annotated_snps_dict[species][group][ref][pos]['locus'] = \
+                                                feature.qualifiers['locus_tag'][0]
+                                            # Not all features have the 'gene' key. Add 'None' if this is the case
+                                            try:
+                                                gene = feature.qualifiers['gene'][0]
+                                            except KeyError:
+                                                gene = 'None'
+                                            species_group_annotated_snps_dict[species][group][ref][pos]['gene'] \
+                                                = gene
+                                            species_group_annotated_snps_dict[species][group][ref][pos]['product'] \
+                                                = \
+                                                feature.qualifiers['product'][0]
+                                        # Populate negative key: value pairs if the position is not in the dictionary
+                                        except KeyError:
+                                            species_group_annotated_snps_dict[species][group][ref][pos]['locus'] \
+                                                = 'None'
+                                            species_group_annotated_snps_dict[species][group][ref][pos]['gene'] \
+                                                = 'None'
+                                            species_group_annotated_snps_dict[species][group][ref][pos]['product'] \
+                                                = 'None'
+        return species_group_annotated_snps_dict
