@@ -70,67 +70,6 @@ class VSNPTreeMethods(object):
                 accession_species_dict[accession] = species
         return accession_species_dict
 
-    @staticmethod
-    def load_vcf_library(strain_vcf_dict):
-        """
-        Use PyVCF to load the gVCF files into dictionaries. This seems very slow, so I am not using this now. Maybe I'm
-        doing something wrong?
-        :param strain_vcf_dict: type DICT: Dictionary of strain name: absolute path to gVCF file
-        :return: parsed_vcf_dict: Dictionary of strain name: key: value pairs CHROM': ref_genome, 'REF': ref base,
-            'ALT': alt base, 'QUAL': quality score, 'LENGTH': length of feature, 'FILTER': deepvariant filter call,
-            'STATS': dictionary of format data
-        :return: strain_best_ref_dict: Dictionary of strain name: reference genome parsed from gVCF file. Note that
-            this will select only a single 'best reference genome' even if there are multiple contigs in the file
-            against which this strain was reference mapped
-        :return: strain_best_ref_set_dict: Dictionary of strain name: all reference genomes parsed from gVCF file
-        """
-        # Initialise dictionaries to store the parsed gVCF outputs and the closest reference genome
-        parsed_vcf_dict = dict()
-        strain_best_ref_dict = dict()
-        strain_best_ref_set_dict = dict()
-        for strain_name, vcf_file in strain_vcf_dict.items():
-            parsed_vcf_dict[strain_name] = dict()
-            # Create the PyVCF 'Reader' object from the .gvcf file
-            vcf_reader = vcf.Reader(filename=vcf_file)
-            # Iterate through all the records in the .vcf file
-            for record in vcf_reader:
-                # print(record.POS)
-                # Initialise the dictionary as required
-                if strain_name not in strain_best_ref_dict:
-                    strain_best_ref_dict[strain_name] = record.CHROM
-                    strain_best_ref_set_dict[strain_name] = {record.CHROM}
-                else:
-                    strain_best_ref_set_dict[strain_name].add(record.CHROM)
-                # Initialise the length of the list to 1
-                alt_length = 1
-                # Substitute out <*> for the reference call in the record.ALT list
-                record.ALT = [str(entry).replace('<*>', record.REF) for entry in record.ALT]
-                # Check if the length of the list is greater than 1 i.e. a SNP call
-                if len(record.ALT) > 1:
-                    for entry in record.ALT:
-                        if len(entry) > 1:
-                            alt_length = len(entry)
-                # SNPs must have a deepvariant filter of 'PASS', be of length one, and have a quality
-                # score above the threshold
-                if record.FILTER is not None and record.FILTER != ['RefCall'] and len(record.REF) == 1 \
-                        and alt_length == 1 and record.QUAL > 30:
-                    record.FILTER = 'PASS'
-                    parsed_vcf_dict[strain_name][record.POS] = record
-                # Insertions must still have a deepvariant filter of 'PASS', but must have a length
-                # greater than one
-                elif record.FILTER is not None and record.FILTER != ['RefCall'] and len(record.REF) == 1:
-                    record.FILTER = 'INSERTION'
-                    parsed_vcf_dict[strain_name][record.POS] = record
-                # If the position in the 'info' field does not match pos, and the minimum depth of a gVCF
-                # block is 0, this is considered a deletion
-                elif record.FILTER is None and record.INFO != record.POS and record.samples[0]['MIN_DP'] == '0':
-                    # Iterate through the range of the deletion, and populate the dictionary for each
-                    # position encompassed by this range (add +1 due to needing to include the final
-                    # position in the dictionary)
-                    record.FILTER = 'DELETION'
-                    for i in range(record.POS, record.INFO + 1):
-                        parsed_vcf_dict[strain_name][i] = record
-        return parsed_vcf_dict, strain_best_ref_dict, strain_best_ref_set_dict
 
     @staticmethod
     def load_vcf(strain_vcf_dict, threads):
