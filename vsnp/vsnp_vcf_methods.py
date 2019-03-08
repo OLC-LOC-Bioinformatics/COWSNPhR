@@ -6,7 +6,6 @@ from glob import glob
 import xlsxwriter
 import shutil
 import gzip
-import vcf
 import os
 
 __author__ = 'adamkoziol'

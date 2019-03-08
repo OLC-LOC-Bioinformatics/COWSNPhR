@@ -16,6 +16,7 @@ test_path = os.path.abspath(os.path.dirname(__file__))
 file_path = os.path.join(test_path, 'files', 'fastq')
 dependency_path = os.path.join(os.path.dirname(test_path), 'dependencies')
 report_path = os.path.join(file_path, 'reports')
+logfile = os.path.join(file_path, 'log')
 threads = multiprocessing.cpu_count() - 1
 home = str(Path.home())
 # Define the start time
@@ -155,8 +156,7 @@ def test_strain_linker():
 
 
 def test_reformat_quality():
-    global logfile, strain_qhist_dict, strain_lhist_dict
-    logfile = os.path.join(file_path, 'log')
+    global strain_qhist_dict, strain_lhist_dict
     strain_qhist_dict, strain_lhist_dict = VCFMethods.run_reformat_reads(strain_fastq_dict=strain_fastq_dict,
                                                                          strain_name_dict=strain_name_dict,
                                                                          logfile=logfile)

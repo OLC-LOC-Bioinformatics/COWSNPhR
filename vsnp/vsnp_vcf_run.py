@@ -48,6 +48,10 @@ class VCF(object):
         fastq_sketch_dict = VCFMethods.call_mash_sketch(strain_fastq_dict=self.strain_fastq_dict,
                                                         strain_name_dict=self.strain_name_dict,
                                                         logfile=self.logfile)
+        logging.debug(
+            'Strain-specific MASH sketch files: \n{files}'.format(
+                files='\n'.join(['{strain_name}: {sketch_file}'.format(strain_name=sn, sketch_file=sf)
+                                 for sn, sf in fastq_sketch_dict.items()])))
         logging.info('Parsing MASH outputs to determine closest reference genomes')
         mash_dist_dict = VCFMethods.call_mash_dist(strain_fastq_dict=self.strain_fastq_dict,
                                                    strain_name_dict=self.strain_name_dict,
@@ -55,15 +59,29 @@ class VCF(object):
                                                    ref_sketch_file=os.path.join(
                                                        self.dependency_path, 'mash', 'vsnp_reference.msh'),
                                                    logfile=self.logfile)
+        logging.debug(
+            'Strain-specific MASH output tables: \n{files}'.format(
+                files='\n'.join(['{strain_name}: {table}'.format(strain_name=sn, table=tf)
+                                 for sn, tf in mash_dist_dict.items()])))
         logging.info('Loading reference genome: species dictionary')
-
         accession_species_dict = VCFMethods.parse_mash_accession_species(mash_species_file=os.path.join(
             self.dependency_path, 'mash', 'species_accessions.csv'))
-
         logging.info('Determining closest reference genome and extracting corresponding species from MASH outputs')
         self.strain_best_ref_dict, self.strain_ref_matches_dict, self.strain_species_dict = \
             VCFMethods.mash_best_ref(mash_dist_dict=mash_dist_dict,
                                      accession_species_dict=accession_species_dict)
+        logging.debug(
+            'Strain-specific MASH-calculated best reference file: \n{files}'.format(
+                files='\n'.join(['{strain_name}: {best_ref}'.format(strain_name=sn, best_ref=br)
+                                 for sn, br in self.strain_best_ref_dict.items()])))
+        logging.debug(
+            'Number of matches to strain-specific MASH-calculated best reference file: \n{files}'.format(
+                files='\n'.join(['{strain_name}: {num_matches}'.format(strain_name=sn, num_matches=nm)
+                                 for sn, nm in self.strain_ref_matches_dict.items()])))
+        logging.debug(
+            'Species code for best reference file: \n{files}'.format(
+                files='\n'.join(['{strain_name}: {species_code}'.format(strain_name=sn, species_code=sc)
+                                 for sn, sc in self.strain_species_dict.items()])))
 
     def reference_mapping(self):
         """
@@ -85,6 +103,9 @@ class VCF(object):
             strain_bowtie2_index_dict=strain_bowtie2_index_dict,
             threads=self.threads,
             logfile=self.logfile)
+        logging.debug('Sorted BAM files: \n{files}'.format(
+                files='\n'.join(['{strain_name}: {bam_file}'.format(strain_name=sn, bam_file=bf)
+                                 for sn, bf in self.strain_sorted_bam_dict.items()])))
         logging.info('Extracting unmapped reads')
         strain_unmapped_reads_dict = VCFMethods.extract_unmapped_reads(
             strain_sorted_bam_dict=self.strain_sorted_bam_dict,
@@ -97,6 +118,9 @@ class VCF(object):
             strain_name_dict=self.strain_name_dict,
             threads=self.threads,
             logfile=self.logfile)
+        logging.debug('SKESA assemblies: \n{files}'.format(
+            files='\n'.join(['{strain_name}: {assembly}'.format(strain_name=sn, assembly=af)
+                             for sn, af in self.strain_skesa_output_fasta_dict.items()])))
 
     def stat_calculation(self):
         """
@@ -110,9 +134,18 @@ class VCF(object):
                                                                    logfile=self.logfile)
         self.strain_average_quality_dict, self.strain_qual_over_thirty_dict = \
             VCFMethods.parse_quality_histogram(strain_qhist_dict=self.strain_qhist_dict)
+        logging.debug('Average strain quality score: \n{files}'.format(
+            files='\n'.join(['{strain_name}: {quality}'.format(strain_name=sn, quality=qs)
+                             for sn, qs in self.strain_average_quality_dict.items()])))
         self.strain_avg_read_lengths = VCFMethods.parse_length_histograms(strain_lhist_dict=self.strain_lhist_dict)
+        logging.debug('Average strain read lengths: \n{files}'.format(
+            files='\n'.join(['{strain_name}: {read_lengths}'.format(strain_name=sn, read_lengths=rl)
+                             for sn, rl in self.strain_avg_read_lengths.items()])))
         logging.info('Calculating size of FASTQ files')
         self.strain_fastq_size_dict = VCFMethods.find_fastq_size(self.strain_fastq_dict)
+        logging.debug('FASTQ file size: \n{files}'.format(
+            files='\n'.join(['{strain_name}: {file_size}'.format(strain_name=sn, file_size=fs)
+                             for sn, fs in self.strain_fastq_size_dict.items()])))
         logging.info('Counting of contigs in assemblies of unmapped reads')
         self.strain_unmapped_contigs_dict = VCFMethods.assembly_stats(
             strain_skesa_output_fasta_dict=self.strain_skesa_output_fasta_dict)
@@ -120,6 +153,9 @@ class VCF(object):
                                   strain_name_dict=self.strain_name_dict,
                                   threads=self.threads,
                                   logfile=self.logfile)
+        logging.debug('Number of contigs in SKESA assemblies: \n{files}'.format(
+            files='\n'.join(['{strain_name}: {num_contigs}'.format(strain_name=sn, num_contigs=nc)
+                             for sn, nc in self.strain_unmapped_contigs_dict.items()])))
         logging.info('Running qualimap analyses on sorted BAM files')
         strain_qualimap_report_dict = VCFMethods.run_qualimap(strain_sorted_bam_dict=self.strain_sorted_bam_dict,
                                                               strain_name_dict=self.strain_name_dict,
@@ -159,14 +195,13 @@ class VCF(object):
                 vcf_path=os.path.join(self.path, 'vcf_files'),
                 home=self.home,
                 logfile=self.logfile)
-        # logging.info('Quality filtering VCF files with vcftools')
-        # strain_vcf_dict = VCFMethods.filter_vcf(strain_unfiltered_vcf_dict=strain_unfiltered_vcf_dict,
-        #                                         strain_name_dict=self.strain_name_dict,
-        #                                         logfile=self.logfile)
         logging.info('Parsing VCF outputs')
         self.strain_num_high_quality_snps_dict = VCFMethods.parse_variants(strain_vcf_dict=strain_vcf_dict)
         VCFMethods.copy_vcf_files(strain_vcf_dict=strain_vcf_dict,
                                   vcf_path=os.path.join(self.path, 'vcf_files'))
+        logging.debug('Number high quality SNPs: \n{files}'.format(
+            files='\n'.join(['{strain_name}: {num_snps}'.format(strain_name=sn, num_snps=ns)
+                             for sn, ns in self.strain_num_high_quality_snps_dict.items()])))
 
     def typing(self):
         """
@@ -187,10 +222,22 @@ class VCF(object):
             self.strain_octal_code_dict, \
             self.strain_hexadecimal_code_dict = \
             VCFMethods.parse_spoligo(strain_spoligo_stats_dict=strain_spoligo_stats_dict)
+        logging.debug('Strain binary codes: \n{files}'.format(
+            files='\n'.join(['{strain_name}: {binary_code}'.format(strain_name=sn, binary_code=bc)
+                             for sn, bc in self.strain_binary_code_dict.items()])))
+        logging.debug('Strain octal codes: \n{files}'.format(
+            files='\n'.join(['{strain_name}: {octal_code}'.format(strain_name=sn, octal_code=oc)
+                             for sn, oc in self.strain_octal_code_dict.items()])))
+        logging.debug('Strain hexadecimal codes: \n{files}'.format(
+            files='\n'.join(['{strain_name}: {hex_code}'.format(strain_name=sn, hex_code=hc)
+                             for sn, hc in self.strain_hexadecimal_code_dict.items()])))
         logging.info('Extracting sb codes')
         self.strain_sbcode_dict = VCFMethods.extract_sbcode(
             strain_reference_dep_path_dict=self.strain_reference_dep_path_dict,
             strain_octal_code_dict=self.strain_octal_code_dict)
+        logging.debug('Strain sb codes: \n{files}'.format(
+            files='\n'.join(['{strain_name}: {sb_code}'.format(strain_name=sn, sb_code=sc)
+                             for sn, sc in self.strain_sbcode_dict.items()])))
         logging.info('Performing MLST analyses')
         VCFMethods.brucella_mlst(seqpath=self.path,
                                  mlst_db_path=os.path.join(self.dependency_path, 'brucella', 'MLST'),
@@ -198,6 +245,9 @@ class VCF(object):
         logging.info('Parsing MLST outputs')
         self.strain_mlst_dict = VCFMethods.parse_mlst_report(strain_name_dict=self.strain_name_dict,
                                                              mlst_report=os.path.join(self.path, 'reports', 'mlst.csv'))
+        logging.debug('MLST results: \n{files}'.format(
+            files='\n'.join(['{strain_name}: {mlst_result}'.format(strain_name=sn, mlst_result=mr)
+                             for sn, mr in self.strain_mlst_dict.items()])))
 
     def report(self):
         """
@@ -245,7 +295,7 @@ class VCF(object):
         # Use the script path to set the absolute path of the dependencies folder
         self.dependency_path = os.path.join(os.path.dirname(self.script_path), 'dependencies')
         assert os.path.isdir(self.dependency_path), 'Something went wrong with the install. Cannot locate the ' \
-                                                   'dependencies folder in: {sp}'.format(sp=self.script_path)
+                                                    'dependencies folder in: {sp}'.format(sp=self.script_path)
         self.logfile = os.path.join(self.path, 'log')
         self.start_time = datetime.now()
         self.home = str(Path.home())
