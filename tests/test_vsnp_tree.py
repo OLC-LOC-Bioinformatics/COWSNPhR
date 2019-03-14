@@ -213,21 +213,32 @@ def test_determine_group_snp_positions():
         assert sorted(group_positions_set['suis1']['Bsuis1-09']['NC_017251.1'])[0] == 8810
 
 
+def test_filter_snps():
+    global filtered_group_positions
+    filtered_group_positions = VSNPTreeMethods.filter_snps(group_positions_set)
+    assert len(filtered_group_positions['af']['All']['NC_002945.4']) == 418
+    assert len(filtered_group_positions['af']['Mbovis-01A3']['NC_002945.4']) == 418
+    assert len(filtered_group_positions['suis1']['Bsuis1-09']['NC_017251.1']) == 61
+    assert len(filtered_group_positions['suis1']['Bsuis1-09']['NC_017250.1']) == 39
+    assert sorted(filtered_group_positions['suis1']['Bsuis1-09']['NC_017250.1'])[0] == 8810
+    with pytest.raises(AssertionError):
+        assert sorted(filtered_group_positions['suis1']['Bsuis1-09']['NC_017251.1'])[0] == 8810
+
+
 def test_load_snp_sequence():
     global group_strain_snp_sequence, species_group_best_ref
     group_strain_snp_sequence, species_group_best_ref = \
         VSNPTreeMethods.load_snp_sequence(strain_parsed_vcf_dict=strain_parsed_vcf_dict,
                                           strain_consolidated_ref_dict=strain_consolidated_ref_dict,
-                                          group_positions_set=group_positions_set,
+                                          group_positions_set=filtered_group_positions,
                                           strain_groups=strain_groups,
                                           strain_species_dict=strain_species_dict,
                                           consolidated_ref_snp_positions=consolidated_ref_snp_positions)
     assert group_strain_snp_sequence['af']['All']['13-1941']['NC_002945.4'][1057] == 'G'
-    assert len(group_strain_snp_sequence['af']['All']['13-1941']['NC_002945.4']) == 516
-    assert group_strain_snp_sequence['af']['All']['13-1941']['NC_002945.4'][948023] == 'M'
+    assert len(group_strain_snp_sequence['af']['All']['13-1941']['NC_002945.4']) == 418
+    assert group_strain_snp_sequence['af']['All']['13-1941']['NC_002945.4'][1467394] == 'Y'
     with pytest.raises(KeyError):
         assert group_strain_snp_sequence['af']['All']['13-1941']['NC_017250.1']
-    assert group_strain_snp_sequence['suis1']['All']['B13-0234']['NC_017250.1'][1195206] == 'R'
     assert group_strain_snp_sequence['suis1']['All']['B13-0234']['NC_017250.1'][623503] == '-'
     with pytest.raises(KeyError):
         assert group_strain_snp_sequence['suis1']['All']['B13-0234']['NC_017251.1'][623503]
@@ -239,6 +250,7 @@ def test_create_multifasta():
     global group_folders, species_folders, group_fasta_dict
     group_folders, species_folders, group_fasta_dict = \
         VSNPTreeMethods.create_multifasta(group_strain_snp_sequence=group_strain_snp_sequence,
+                                          group_positions_set=filtered_group_positions,
                                           fasta_path=fasta_path)
     assert len(group_folders) == 9
     assert len(species_folders) == 2
@@ -263,7 +275,7 @@ def test_run_raxml():
 def test_parse_tree_order():
     global species_group_order_dict
     species_group_order_dict = VSNPTreeMethods.parse_tree_order(species_group_trees=species_group_trees)
-    assert species_group_order_dict['af']['All'] == ['13-1941', '13-1950', '14-2093', '03-1057', '13-3082',
+    assert species_group_order_dict['af']['All'] == ['03-1057', '13-1941', '13-1950', '14-2093', '13-3082',
                                                      'NC_002945v4']
 
     assert species_group_order_dict['suis1']['All'] == ['B13-0235', 'B13-0238', 'B13-0234', 'B13-0237', 'B13-0239',
@@ -324,12 +336,12 @@ def test_rank_snps():
     assert species_group_snp_rank['suis1']['All'][5]['NC_017250.1'][0] == 8810
     with pytest.raises(AssertionError):
         assert species_group_snp_rank['suis1']['All'][5]['NC_017251.1'][0] == 8810
-    assert len(species_group_snp_rank['af']['All'][5]['NC_002945.4']) == 473
-    assert len(species_group_snp_rank['suis1']['All'][5]['NC_017251.1']) == 46
-    assert len(species_group_snp_rank['suis1']['All'][1]['NC_017251.1']) == 17
-    assert len(species_group_snp_rank['suis1']['All'][5]['NC_017250.1']) == 21
-    assert species_group_num_snps['af']['All'] == 516
-    assert species_group_num_snps['suis1']['All'] == 108
+    assert len(species_group_snp_rank['af']['All'][5]['NC_002945.4']) == 389
+    assert len(species_group_snp_rank['suis1']['All'][5]['NC_017251.1']) == 45
+    assert len(species_group_snp_rank['suis1']['All'][1]['NC_017251.1']) == 16
+    assert len(species_group_snp_rank['suis1']['All'][5]['NC_017250.1']) == 20
+    assert species_group_num_snps['af']['All'] == 418
+    assert species_group_num_snps['suis1']['All'] == 100
 
 
 def test_sort_snps():
@@ -339,14 +351,15 @@ def test_sort_snps():
                                   species_group_snp_rank=species_group_snp_rank,
                                   species_group_best_ref=species_group_best_ref,
                                   group_strain_snp_sequence=group_strain_snp_sequence)
-    assert species_group_sorted_snps['af']['All']['NC_002945.4'][0] == 1057
-    assert species_group_sorted_snps['af']['All']['NC_002945.4'][-1] == 2523406
-    assert species_group_sorted_snps['suis1']['All']['NC_017250.1'][0] == 8810
-    assert species_group_sorted_snps['suis1']['All']['NC_017250.1'][-1] == 1183517
-    assert species_group_sorted_snps['suis1']['All']['NC_017251.1'][-1] == 2065515
-    assert len(species_group_sorted_snps['af']['All']['NC_002945.4']) == 516
-    assert len(species_group_sorted_snps['suis1']['All']['NC_017251.1']) == 63
-    assert len(species_group_sorted_snps['suis1']['All']['NC_017250.1']) == 45
+    assert species_group_sorted_snps['af']['All'][5]['NC_002945.4'][0] == 1057
+    assert species_group_sorted_snps['af']['All'][1]['NC_002945.4'][-1] == 2523406
+    assert species_group_sorted_snps['suis1']['All'][5]['NC_017250.1'][0] == 8810
+    assert species_group_sorted_snps['suis1']['All'][1]['NC_017250.1'][-1] == 1183517
+    assert species_group_sorted_snps['suis1']['All'][1]['NC_017251.1'][-1] == 2065515
+    assert len(species_group_sorted_snps['af']['All'][5]['NC_002945.4']) == 389
+    assert len(species_group_sorted_snps['af']['All'][1]['NC_002945.4']) == 1
+    assert len(species_group_sorted_snps['suis1']['All'][5]['NC_017251.1']) == 45
+    assert len(species_group_sorted_snps['suis1']['All'][1]['NC_017250.1']) == 4
 
 
 def test_create_summary_table():
