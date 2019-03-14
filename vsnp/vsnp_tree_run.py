@@ -98,6 +98,7 @@ class VSNPTree(object):
         logging.info('Creating multi-FASTA files of group-specific core SNPs')
         group_folders, species_folders, self.group_fasta_dict = \
             VSNPTreeMethods.create_multifasta(group_strain_snp_sequence=self.group_strain_snp_sequence,
+                                              group_positions_set=group_positions_set,
                                               fasta_path=self.fasta_path)
 
     def phylogenetic_trees(self):
@@ -127,7 +128,7 @@ class VSNPTree(object):
                                           ref_snp_positions=self.ref_snp_positions)
 
     def order_snps(self):
-        logging.info('Counting number of prevalence of SNPs')
+        logging.info('Counting prevalence of SNPs')
         species_group_snp_num_dict = \
             VSNPTreeMethods.determine_snp_number(group_strain_snp_sequence=self.group_strain_snp_sequence,
                                                  species_group_best_ref=self.species_group_best_ref)

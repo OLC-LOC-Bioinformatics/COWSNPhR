@@ -491,6 +491,42 @@ class VSNPTreeMethods(object):
         return group_positions_set
 
     @staticmethod
+    def filter_snps(group_positions_set, window_size=1000):
+        """
+        Remove any SNPs from regions of a defined window size with two or more SNPs
+        :param group_positions_set: type DICT: Dictionary of species code: group name: reference chromosome: set of
+        group-specific SNP positions
+        :param window_size: type INT: Window size to use when filtering SNPs. Default is 1000
+        :return: filtered_group_positions: Dictionary of species code: group name: reference chromosome: set of SNP
+        unfiltered SNP positions
+        """
+        # Divide the window size by two to yield the range to use when filtering putative recombinant SNPs
+        bp_range = int(window_size / 2)
+        # Initialise a dictionary to store the SNPs that pass filter
+        filtered_group_positions = dict()
+        for species, group_dict in group_positions_set.items():
+            # Initialise the species key
+            filtered_group_positions[species] = dict()
+            for group, ref_dict in group_dict.items():
+                # Initialise the group key
+                filtered_group_positions[species][group] = dict()
+                for ref_chrom, pos_list in ref_dict.items():
+                    if ref_chrom not in filtered_group_positions[species][group]:
+                        filtered_group_positions[species][group][ref_chrom] = set()
+                    for pos in pos_list:
+                        # Boolean on whether the SNP position is to be kep
+                        add_pos = True
+                        # Simple window of 1001 bp (pos - 500 to pos + 500)
+                        for i in range(pos - bp_range, pos + bp_range):
+                            # If there is another SNP in this range, set add_pos to False
+                            if i in pos_list and i != pos and add_pos:
+                                add_pos = False
+                        # If the position passes the filter, add it to the dictionary
+                        if add_pos:
+                            filtered_group_positions[species][group][ref_chrom].add(pos)
+        return filtered_group_positions
+
+    @staticmethod
     def load_snp_sequence(strain_parsed_vcf_dict, strain_consolidated_ref_dict, group_positions_set, strain_groups,
                           strain_species_dict, consolidated_ref_snp_positions):
         """
@@ -594,12 +630,16 @@ class VSNPTreeMethods(object):
         return group_strain_snp_sequence, species_group_best_ref
 
     @staticmethod
-    def create_multifasta(group_strain_snp_sequence, fasta_path):
+    def create_multifasta(group_strain_snp_sequence, fasta_path, group_positions_set, nested=True):
         """
         Create a multiple sequence alignment in FASTA format for each group from all the SNP positions for the group
         :param group_strain_snp_sequence: type DICT: Dictionary of species: group: strain name: reference chromosome:
         position: sequence
         :param fasta_path: type STR: Absolute path of folder in which alignments are to be created
+        :param group_positions_set: type DICT: Dictionary of species code: group name: reference chromosome: set of
+        group-specific SNP positions
+        :param nested: type BOOL: Boolean on whether the multi-FASTA files should be created in the normal directory
+        structure, or within the fasta_path
         :return: group_fasta_dict: Dictionary of species code: group name: FASTA file created for the group
         :return: group_folders: Set of absolute paths to folders for each group
         :return: species_folders: Set of absolute path to folders for each species
@@ -620,17 +660,26 @@ class VSNPTreeMethods(object):
             # Add the absolute path of the species-specific folder to the set of all species folders
             species_folders.add(os.path.join(fasta_path, species))
             for group, strain_dict in group_dict.items():
-                output_dir = os.path.join(fasta_path, species, group)
+                # Set the output_dir as appropriate based on whether nesting is requested
+                if nested:
+                    output_dir = os.path.join(fasta_path, species, group)
+                else:
+                    output_dir = fasta_path
                 make_path(output_dir)
                 # Add the group-specific folder to the set of all group folders
                 group_folders.add(output_dir)
                 for strain_name, chrom_dict in strain_dict.items():
                     # Create a string to store the strain-specific sequence
                     strain_group_seq = str()
-                    for ref_chrom, sequence_dict in chrom_dict.items():
-                        for pos, sequence in sequence_dict.items():
-                            # Append each base to the string
-                            strain_group_seq += sequence
+                    # for ref_chrom, sequence_dict in chrom_dict.items():
+                    for ref_chrom, position_set in group_positions_set[species][group].items():
+                        for pos in sorted(position_set):
+                            try:
+                                sequence = chrom_dict[ref_chrom][pos]
+                                # Append each base to the string
+                                strain_group_seq += sequence
+                            except KeyError:
+                                strain_group_seq += '-'
                     # Create a SeqRecord from the sequence string in IUPAC ambiguous DNA format. Use the strain name
                     # as the id
                     record = SeqRecord(Seq(strain_group_seq, IUPAC.ambiguous_dna),
@@ -943,7 +992,7 @@ class VSNPTreeMethods(object):
             species_group_snp_rank[species] = dict()
             species_group_num_snps[species] = dict()
             for group, ref_dict in group_dict.items():
-                # Initilase the group key
+                # Initialise the group key
                 species_group_snp_rank[species][group] = dict()
                 species_group_num_snps[species][group] = int()
                 for ref_chrom, pos_dict in ref_dict.items():
@@ -987,20 +1036,27 @@ class VSNPTreeMethods(object):
                 best_ref = species_group_best_ref[species][group]
                 # Extract the number of group-specific SNPs from the reverse-sorted dictionary (more SNPs first)
                 for num_snps, ref_dict in sorted(species_group_snp_rank[species][group].items(), reverse=True):
+                    if num_snps not in species_group_sorted_snps[species][group]:
+                        species_group_sorted_snps[species][group][num_snps] = dict()
                     for strain_name in ordered_strain_list:
                         # Don't need to look at the reference genome when finding SNPs
                         if strain_name != best_ref:
                             for ref_chrom, pos_list in ref_dict.items():
                                 if ref_chrom not in species_group_sorted_snps[species][group]:
-                                    species_group_sorted_snps[species][group][ref_chrom] = list()
+                                    species_group_sorted_snps[species][group][num_snps][ref_chrom] = list()
                                 for pos in pos_list:
-                                    sequence = group_strain_snp_sequence[species][group][strain_name][ref_chrom][pos]
-                                    ref_seq = group_strain_snp_sequence[species][group][best_ref][ref_chrom][pos]
-                                    # print(species, strain_name, ref_chrom, best_ref, pos, sequence, ref_seq)
-                                    if sequence != ref_seq and pos not in \
-                                            species_group_sorted_snps[species][group][ref_chrom]:
-                                        # Add the position to the list
-                                        species_group_sorted_snps[species][group][ref_chrom].append(pos)
+                                    try:
+                                        sequence = \
+                                            group_strain_snp_sequence[species][group][strain_name][ref_chrom][pos]
+                                        ref_seq = group_strain_snp_sequence[species][group][best_ref][ref_chrom][pos]
+                                        if sequence != ref_seq and pos not in \
+                                                species_group_sorted_snps[species][group][num_snps][ref_chrom]:
+                                            # Add the position to the list
+                                            species_group_sorted_snps[species][group][num_snps][ref_chrom].append(pos)
+                                    # If the position is not present in group_strain_snp_sequence, it is because
+                                    # the strain does not have a SNP at that position
+                                    except KeyError:
+                                        pass
         return species_group_sorted_snps
 
     @staticmethod
@@ -1028,154 +1084,178 @@ class VSNPTreeMethods(object):
                 # Extract the name of the reference genome from the species_group_best_ref genome
                 consolidated_ref = species_group_best_ref[species][group]
                 total_snps = species_group_num_snps[species][group]
+                # Initialise a variable to store the current column for the report; each reference chromosome will
+                # be added to the report, and cannot overwrite the previous results
+                current_col = 0
+                # Set the name of the summary table
+                summary_table = os.path.join(summary_path, '{species}_{group}_sorted_table.xlsx'
+                                             .format(species=species,
+                                                     group=group))
+                # Create an xlsxwriter workbook object
+                wb = xlsxwriter.Workbook(summary_table)
+                # Create a worksheet in the workbook
+                ws = wb.add_worksheet()
+                # Create all the necessary formats for the workbook
+                header, courier, bold_courier, top_bold_courier, annotation, format_dict, ambiguous_format = \
+                    VSNPTreeMethods.format_workbook(wb=wb)
+                # Initialise a variable to store the current row under consideration
+                row = 0
+                # Merge all the cells in the first row from the second column until the column corresponding to
+                # the length of the total number of group-specific SNP positions
+                ws.merge_range(first_row=row,
+                               first_col=1,
+                               last_row=0,
+                               last_col=total_snps,
+                               data='SNP Position',
+                               cell_format=top_bold_courier)
+                # Adjust the width of the columns from the 2nd until the column corresponding to the total number
+                # of SNPs to 2
+                ws.set_column(first_col=1,
+                              last_col=total_snps,
+                              width=2)
+                # Write the 'Strain' header
+                ws.write_string(row=row,
+                                col=0,
+                                string='Strain',
+                                cell_format=top_bold_courier)
                 # Determine the height of the cells for the annotation results
                 annotation_height = 0
-                for ref_chrom, snp_order in species_group_sorted_snps[species][group].items():
-                    # Determine the height to use based on the group-specific SNP with the longest annotation
-                    # (multiplied by 5 as determined by trial and error)
-                    current_height = 5 * max(
-                        [len(species_group_annotated_snps_dict[species][group][ref_chrom][pos]['product']) for pos in
-                         snp_order])
-                    # As there are multiple reference chromosomes to consider, ensure that the length of the longest
-                    # annotation of all chromosomes is being used
-                    annotation_height = current_height if current_height > annotation_height else annotation_height
-                for ref_chrom, snp_order in species_group_sorted_snps[species][group].items():
-                    # Extract the strain_dict (dictionary of strain name: pos: pos sequence) from the dictionary
-                    strain_dict = group_strain_snp_sequence[species][group]
-                    # Extract consolidated reference genome pos: sequence dictionary
-                    ref_dict = strain_dict[consolidated_ref][ref_chrom]
-                    # Set the name of the summary table
-                    summary_table = os.path.join(summary_path, '{species}_{group}_sorted_table.xlsx'
-                                                 .format(species=species,
-                                                         group=group))
-                    # Create an xlsxwriter workbook object
-                    wb = xlsxwriter.Workbook(summary_table)
-                    # Create a worksheet in the workbook
-                    ws = wb.add_worksheet()
-                    # Create all the necessary formats for the workbook
-                    header, courier, bold_courier, top_bold_courier, annotation, format_dict, ambiguous_format = \
-                        VSNPTreeMethods.format_workbook(wb=wb)
-                    # Initialise a variable to store the current row under consideration
-                    row = 0
-                    # Merge all the cells in the first row from the second column until the column corresponding to
-                    # the length of the total number of group-specific SNP positions
-                    ws.merge_range(first_row=row,
-                                   first_col=1,
-                                   last_row=0,
-                                   last_col=total_snps,
-                                   data='SNP Position',
-                                   cell_format=top_bold_courier)
-                    # Increment the row
-                    row += 1
-                    # Determine the height to use for the header. Each cell consists of the reference chromosome name
-                    # and the SNP position (e.g. NC_002945.4_1057) rotated 270 degrees, so the cell must have a height
-                    # equal to the length of the header multiplied by 6 (as determined by trial and error)
-                    max_snp_length = max([len(str(snp)) for snp in snp_order])
-                    snp_height = 6 * (max_snp_length + len(ref_chrom))
-                    # Adjust the row height
-                    ws.set_row(row=row,
-                               height=snp_height)
-                    # Set the width of the first column to be the longest of the following three items: 1) the length
-                    # of the longest strain name, 2) the length of the consolidated reference, 3) length of the word
-                    # 'Annotation'; the longest hardcoded string in the column
-                    strain_length = max([len(consolidated_ref), len(max(strain_dict)), 10])
-                    ws.set_column(first_col=0,
-                                  last_col=0,
-                                  width=strain_length)
-                    # Adjust the width of the columns from the 2nd until the column corresponding to the total number
-                    # of SNPs to 2
-                    ws.set_column(first_col=1,
-                                  last_col=total_snps,
-                                  width=2)
-                    # Write the 'Strain' header
-                    ws.write_string(row=row,
-                                    col=0,
-                                    string='Strain',
-                                    cell_format=top_bold_courier)
-                    # Write the header consisting of the reference chromosome + '_' + SNP position
-                    # (e.g. NC_002945.4_1057) for every ordered SNP
-                    for i, entry in enumerate(snp_order):
-                        ws.write_string(row=row,
-                                        col=i + 1,
-                                        string='{ref_chrom}_{entry}'.format(ref_chrom=ref_chrom,
-                                                                            entry=entry),
-                                        cell_format=header)
+                for num_snps, chrom_dict in species_group_sorted_snps[species][group].items():
+                    for ref_chrom, snp_order in chrom_dict.items():
+                        # Determine the height to use based on the group-specific SNP with the longest annotation
+                        # (multiplied by 5 as determined by trial and error)
+                        try:
+                            annotation_list = list()
+                            for pos in snp_order:
+                                annotation_dict = species_group_annotated_snps_dict[species][group][ref_chrom][pos]
+                                annotation_string = '{product};{gene};{locus}'.format(
+                                    product=annotation_dict['product'],
+                                    gene=annotation_dict['gene'],
+                                    locus=annotation_dict['locus'])
+                                annotation_list.append(annotation_string)
+                            current_height = 5 * max([len(annotation) for annotation in annotation_list])
+                            # Determine the height to use for the header. Each cell consists of the ref chromosome name
+                            # and the SNP pos (e.g. NC_002945.4_1057) rotated 270 degrees, so the cell has a height
+                            # equal to the length of the header multiplied by 6 (as determined by trial and error)
+                            max_snp_length = max([len(str(snp)) for snp in snp_order])
+                            snp_height = 6 * (max_snp_length + len(ref_chrom))
+                            # Adjust the row height
+                            ws.set_row(row=1,
+                                       height=snp_height)
+                        except ValueError:
+                            current_height = annotation_height
+                        # As there are multiple reference chromosomes to consider, ensure that the length of the longest
+                        # annotation of all chromosomes is being used
+                        annotation_height = current_height if current_height > annotation_height else annotation_height
+                for num_snps, chrom_dict in species_group_sorted_snps[species][group].items():
+                    for ref_chrom, snp_order in chrom_dict.items():
+                        row = 1
+                        # Extract the strain_dict (dictionary of strain name: pos: pos sequence) from the dictionary
+                        strain_dict = group_strain_snp_sequence[species][group]
+                        # Extract consolidated reference genome pos: sequence dictionary
+                        ref_dict = strain_dict[consolidated_ref][ref_chrom]
+                        # Set the width of the first column to be the longest of the following items: 1) the length
+                        # of the longest strain name, 2) the length of the consolidated reference, 3) length of the word
+                        # 'Annotation'; the longest hardcoded string in the column
+                        strain_length = max([len(consolidated_ref), len(max(strain_dict)), 10])
+                        ws.set_column(first_col=0,
+                                      last_col=0,
+                                      width=strain_length)
 
-                    # Increment the row for the reference genome sequences
-                    row += 1
-                    # Add the name of the consolidated reference sequence to the 'Strain' column
-                    ws.write_string(row=row,
-                                    col=0,
-                                    string=consolidated_ref,
-                                    cell_format=courier)
-                    # Iterate through the sorted SNPs, and write the reference sequence for each position
-                    for i, pos in enumerate(snp_order):
-                        ws.write_string(row=row,
-                                        col=i + 1,
-                                        string=ref_dict[pos],
-                                        cell_format=bold_courier)
-                    # Increment the row
-                    row += 1
-                    # Freeze the panes, so that the row containing the reference sequence is at the bottom of the
-                    # frozen pane, and the column with the strain names is always present
-                    ws.freeze_panes(row=row,
-                                    col=1)
-                    # Add the strain-specific data to the table
-                    for strain_name in ordered_strain_list:
-                        # Continue to unpack the dictionary to obtain sequence_dict: a dictionary of pos: pos sequence
-                        sequence_dict = strain_dict[strain_name][ref_chrom]
-                        # Don't need to look at the reference genome when finding SNPs
-                        if strain_name != consolidated_ref:
-                            # Write the strain name in the 'Strain' column
+                        # Write the header consisting of the reference chromosome + '_' + SNP position
+                        # (e.g. NC_002945.4_1057) for every ordered SNP
+                        for i, entry in enumerate(snp_order):
                             ws.write_string(row=row,
-                                            col=0,
-                                            string=strain_name,
-                                            cell_format=courier)
-                            for i, pos in enumerate(snp_order):
-                                # Extract the position-specific sequence from the dictionary
-                                sequence = sequence_dict[pos]
-                                # Determine the format to use for the cell based on the sequence
-                                # If the sequence matches the reference sequence, it uses the standard black text on
-                                # white background format
-                                base_format = bold_courier
-                                if sequence != ref_dict[pos]:
-                                    # If the sequence is one of A, C, G, T, or N, use the appropriate format extracted
-                                    # from the dictionary
-                                    try:
-                                        base_format = format_dict[sequence]
-                                    # If the sequence is a degenerate base (e.g. M), or missing (-), use the
-                                    # 'ambiguous' format
-                                    except KeyError:
-                                        base_format = ambiguous_format
-                                # Write the sequence in the appropriate format
-                                ws.write_string(row=row,
-                                                col=i + 1,
-                                                string=sequence,
-                                                cell_format=base_format)
-                            # Increment the row for each sequence
-                            row += 1
-                    # Add the string 'Annotation' to the 'Strain' column
-                    ws.write_string(row=row,
-                                    col=0,
-                                    string='Annotation',
-                                    cell_format=top_bold_courier)
-                    # Set the row height to the previously calculated height
-                    ws.set_row(row=row,
-                               height=annotation_height)
-                    # Extract the 'product' annotations for the sorted SNPs from the species_group_annotated_snps_dict
-                    for i, pos in enumerate(snp_order):
+                                            col=current_col + i + 1,
+                                            string='{ref_chrom}_{entry}'.format(ref_chrom=ref_chrom,
+                                                                                entry=entry),
+                                            cell_format=header)
+                        # Increment the row for the reference genome sequences
+                        row += 1
+                        # Add the name of the consolidated reference sequence to the 'Strain' column
                         ws.write_string(row=row,
-                                        col=i + 1,
-                                        string=species_group_annotated_snps_dict[species][group][ref_chrom][pos]
-                                        ['product'],
-                                        cell_format=annotation)
-                    # Increment the row
-                    row += 1
-                    # Set the final row to a height of 1
-                    ws.set_row(row=row,
-                               height=1)
-                    # Close the workbook
-                    wb.close()
+                                        col=0,
+                                        string=consolidated_ref,
+                                        cell_format=courier)
+                        # Iterate through the sorted SNPs, and write the reference sequence for each position
+                        for i, pos in enumerate(snp_order):
+                            ws.write_string(row=row,
+                                            col=current_col + i + 1,
+                                            string=ref_dict[pos],
+                                            cell_format=bold_courier)
+                        # Increment the row
+                        row += 1
+                        # Freeze the panes, so that the row containing the reference sequence is at the bottom of the
+                        # frozen pane, and the column with the strain names is always present
+                        ws.freeze_panes(row=row,
+                                        col=1)
+                        # Add the strain-specific data to the table
+                        for strain_name in ordered_strain_list:
+                            # Continue to unpack the dictionary to obtain sequence_dict: a dictionary of pos: pos seq
+                            try:
+                                sequence_dict = strain_dict[strain_name][ref_chrom]
+                            except KeyError:
+                                sequence_dict = strain_dict[consolidated_ref][ref_chrom]
+                            # Don't need to look at the reference genome when finding SNPs
+                            if strain_name != consolidated_ref:
+                                # Write the strain name in the 'Strain' column
+                                ws.write_string(row=row,
+                                                col=0,
+                                                string=strain_name,
+                                                cell_format=courier)
+                                for i, pos in enumerate(snp_order):
+                                    # Extract the position-specific sequence from the dictionary
+                                    try:
+                                        sequence = sequence_dict[pos]
+                                    except KeyError:
+                                        sequence = ref_dict[pos]
+                                    # Determine the format to use for the cell based on the sequence
+                                    # If the sequence matches the reference sequence, it uses the standard black text on
+                                    # white background format
+                                    base_format = bold_courier
+                                    if sequence != ref_dict[pos]:
+                                        # If the sequence is one of A, C, G, T, or N, extract the appropriate format
+                                        # from the dictionary
+                                        try:
+                                            base_format = format_dict[sequence]
+                                        # If the sequence is a degenerate base (e.g. M), or missing (-), use the
+                                        # 'ambiguous' format
+                                        except KeyError:
+                                            base_format = ambiguous_format
+                                    # Write the sequence in the appropriate format
+                                    ws.write_string(row=row,
+                                                    col=current_col + i + 1,
+                                                    string=sequence,
+                                                    cell_format=base_format)
+                                # Increment the row for each sequence
+                                row += 1
+
+                        # Add the string 'Annotation' to the 'Strain' column
+                        ws.write_string(row=row,
+                                        col=0,
+                                        string='Annotation',
+                                        cell_format=top_bold_courier)
+                        # Set the row height to the previously calculated height
+                        ws.set_row(row=row,
+                                   height=annotation_height)
+                        # Extract the 'product' annotations for the SNP from the species_group_annotated_snps_dict
+                        for i, pos in enumerate(snp_order):
+                            annotation_dict = species_group_annotated_snps_dict[species][group][ref_chrom][pos]
+                            annotation_string = '{product};{gene};{locus}'.format(product=annotation_dict['product'],
+                                                                                  gene=annotation_dict['gene'],
+                                                                                  locus=annotation_dict['locus'])
+                            ws.write_string(row=row,
+                                            col=current_col + i + 1,
+                                            string=annotation_string,
+                                            cell_format=annotation)
+                        current_col += len(snp_order)
+                        # Increment the row
+                        row += 1
+                        # Set the final row to a height of 1
+                        ws.set_row(row=row,
+                                   height=1)
+                # Close the workbook
+                wb.close()
 
     @staticmethod
     def format_workbook(wb):
@@ -1187,25 +1267,25 @@ class VSNPTreeMethods(object):
         # Add a bold format for header cells. Using a monotype font size 8, rotated 270 degrees
         header = wb.add_format({'bold': True,
                                 'font_name': 'Courier New',
-                                'font_size': 8,
+                                'font_size': 7,
                                 'rotation': '90'})
         # Format for data cells. Monotype, size 8, top vertically justified
         courier = wb.add_format({'font_name': 'Courier New',
-                                 'font_size': 8,
+                                 'font_size': 7,
                                  'align': 'top'})
         # Bold courier format
         bold_courier = wb.add_format({'font_name': 'Courier New',
-                                      'font_size': 8,
+                                      'font_size': 7,
                                       'bold': True})
         # Bold courier top aligned
         top_bold_courier = wb.add_format({'font_name': 'Courier New',
-                                          'font_size': 8,
+                                          'font_size': 7,
                                           'bold': True,
                                           'align': 'top'})
         # Create a format for the annotations: bold, blue text, rotated -90 degrees
         annotation = wb.add_format({'bold': True,
                                     'font_name': 'Courier New',
-                                    'font_size': 8,
+                                    'font_size': 7,
                                     'font_color': '#0A028C',
                                     'rotation': '-90',
                                     'align': 'top'})
@@ -1214,28 +1294,28 @@ class VSNPTreeMethods(object):
             'A': wb.add_format({'bg_color': '#58FA82',
                                 'bold': True,
                                 'font_name': 'Courier New',
-                                'font_size': 8}),
+                                'font_size': 7}),
             'C': wb.add_format({'bg_color': '#0000FF',
                                 'bold': True,
                                 'font_name': 'Courier New',
-                                'font_size': 8}),
+                                'font_size': 7}),
             'G': wb.add_format({'bg_color': '#F7FE2E',
                                 'bold': True,
                                 'font_name': 'Courier New',
-                                'font_size': 8}),
+                                'font_size': 7}),
             'T': wb.add_format({'bg_color': '#FF0000',
                                 'bold': True,
                                 'font_name': 'Courier New',
-                                'font_size': 8}),
+                                'font_size': 7}),
             'N': wb.add_format({'bg_color': '#E2CFDD',
                                 'bold': True,
                                 'font_name': 'Courier New',
-                                'font_size': 8})
+                                'font_size': 7})
         }
         # Create a format to handle IUPAC degenerate bases
         ambiguous_format = wb.add_format({'font_color': '#C70039',
                                           'bg_color': '#E2CFDD',
                                           'font_name': 'Courier New',
-                                          'font_size': 8,
+                                          'font_size': 7,
                                           'bold': True})
         return header, courier, bold_courier, top_bold_courier, annotation, format_dict, ambiguous_format
