@@ -382,6 +382,7 @@ class VCFMethods(object):
         :param dependency_path: type STR: Absolute path to dependency folder
         :param strain_best_ref_dict: type DICT: Dictionary of strain name: closest reference genome
         :return: reference_link_path_dict: Dictionary of strain name: relative path to symlinked reference genome
+        :return: reference_link_dict: Dictionary of reference file.fasta: relative path to reference genome
         """
         # Initialise dictionaries
         reference_link_dict = dict()
