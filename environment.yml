@@ -27,6 +27,8 @@ dependencies:
   - bioconductor-zlibbioc=1.26.0=r341h470a237_0
   - bowtie2=2.3.4.3=py36h2d50403_0
   - bwa=0.7.17=ha92aebf_3
+  - ete3=3.1.1=pyh24bf2e0_1
+  - fasttree=2.1.10=h470a237_2
   - freebayes=1.2.0=py36h82df9c4_3
   - htslib=1.9=hc238db4_4
   - libdeflate=1.0=h470a237_0
@@ -39,6 +41,7 @@ dependencies:
   - samtools=1.9=h8ee4bcc_1
   - skesa=2.3.0=h4ef8376_0
   - vcflib=1.0.0_rc2=h82df9c4_0
+  - vcftools=0.1.16=he941832_2
   - biopython=1.72=py36h14c3975_1000
   - bokeh=1.0.4=py36_1000
   - boost=1.67.0=py36h3e44d54_0
@@ -79,7 +82,9 @@ dependencies:
   - libuuid=2.32.1=h14c3975_1000
   - libxcb=1.13=h14c3975_1002
   - libxml2=2.9.8=h143f9aa_1005
+  - libxslt=1.1.32=h4785a14_1002
   - locket=0.2.0=py_2
+  - lxml=4.3.2=py36h23eabaa_0
   - make=4.2.1=h14c3975_2004
   - markupsafe=1.1.0=py36h14c3975_1000
   - mkl_fft=1.0.10=py36h470a237_1
@@ -105,6 +110,7 @@ dependencies:
   - psutil=5.4.8=py36h14c3975_1000
   - pthread-stubs=0.4=h14c3975_1001
   - pyparsing=2.3.1=py_0
+  - pyqt=4.11.4=py36_3
   - python=3.6.7=hd21baee_1001
   - python-dateutil=2.7.5=py_0
   - pytz=2018.9=py_0
@@ -126,6 +132,7 @@ dependencies:
   - readline=7.0=hf8c457e_1001
   - regex=2018.11.22=py36h14c3975_1000
   - setuptools=40.6.3=py36_0
+  - sip=4.18=py36_1
   - six=1.12.0=py36_1000
   - sortedcontainers=2.1.0=py_0
   - sqlite=3.26.0=h67949de_1000
@@ -159,6 +166,8 @@ dependencies:
   - mkl=2019.1=144
   - numpy=1.15.4=py36h7e9f1db_0
   - numpy-base=1.15.4=py36hde5b4d6_0
+  - qt=4.8.7=4
+  - scipy=1.2.1=py36h7c811a0_0
   - wget=1.19.5=h1ad7b7a_0
   - pip:
     - atomicwrites==1.2.1
@@ -182,10 +191,10 @@ dependencies:
     - pytest-cov==2.6.1
     - rauth==0.7.3
     - requests==2.21.0
-    - scipy==1.2.0
     - seaborn==0.9.0
     - sipprverse==0.2.22
     - urllib3==1.24.1
     - validator-helper==0.0.6
+    - vsnpdev==0.0.6
 prefix: /home/adamkoziol/miniconda3/envs/vsnp_dev
 
