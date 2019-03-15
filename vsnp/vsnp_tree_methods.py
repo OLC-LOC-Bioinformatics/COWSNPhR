@@ -70,15 +70,16 @@ class VSNPTreeMethods(object):
         return accession_species_dict
 
     @staticmethod
-    def load_vcf(strain_vcf_dict, threads):
+    def load_vcf(strain_vcf_dict, threads, qual_cutoff=20):
         """
         Create a multiprocessing pool to parse gVCF files concurrently
-        :param strain_vcf_dict:
-        :param threads:
+        :param strain_vcf_dict: type DICT: Dictionary of strain name: absolute path to gVCF file
+        :param qual_cutoff: type INT: Quality cutoff value to use. Default is 20
+        :param threads: type INT: Number of processes to run concurrently
         :return:
         """
         # Initialise dictionaries to store the parsed gVCF outputs and the closest reference genome
-        parsed_vcf_dict = dict()
+        strain_parsed_vcf_dict = dict()
         strain_best_ref_dict = dict()
         strain_best_ref_set_dict = dict()
         # Create a multiprocessing pool. Limit the number of processes to the number of threads
@@ -91,22 +92,24 @@ class VSNPTreeMethods(object):
         # Supply the list of strains, as well as a list the length of the number of strains of each required variable
         for parsed_vcf, strain_best_ref, strain_best_ref_set in p.starmap(VSNPTreeMethods.load_vcf_multiprocessing,
                                                                           zip(strain_list,
-                                                                              [strain_vcf_dict] * list_length)):
+                                                                              [strain_vcf_dict] * list_length,
+                                                                              [qual_cutoff] * list_length)):
             # Update the dictionaries
-            parsed_vcf_dict.update(parsed_vcf)
+            strain_parsed_vcf_dict.update(parsed_vcf)
             strain_best_ref_dict.update(strain_best_ref)
             strain_best_ref_set_dict.update(strain_best_ref_set)
         # Close and join the pool
         p.close()
         p.join()
-        return parsed_vcf_dict, strain_best_ref_dict, strain_best_ref_set_dict
+        return strain_parsed_vcf_dict, strain_best_ref_dict, strain_best_ref_set_dict
 
     @staticmethod
-    def load_vcf_multiprocessing(strain_name, strain_vcf_dict):
+    def load_vcf_multiprocessing(strain_name, strain_vcf_dict, qual_cutoff):
         """
         Load the gVCF files into a dictionary
         :param strain_name: type STR: Name of strain being processed
         :param strain_vcf_dict: type DICT: Dictionary of strain name: absolute path to gVCF file
+        :param qual: type INT: Quality cutoff value to use.
         :return: parsed_vcf_dict: Dictionary of strain name: key: value pairs CHROM': ref_genome, 'REF': ref base,
             'ALT': alt base, 'QUAL': quality score, 'LENGTH': length of feature, 'FILTER': deepvariant filter call,
             'STATS': dictionary of format data
@@ -134,11 +137,11 @@ class VSNPTreeMethods(object):
         #CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	<STRAIN NAME>
         '''
         # Initialise dictionaries to store the parsed gVCF outputs and the closest reference genome
-        parsed_vcf_dict = dict()
+        strain_parsed_vcf_dict = dict()
         strain_best_ref_dict = dict()
         strain_best_ref_set_dict = dict()
         vcf_file = strain_vcf_dict[strain_name]
-        parsed_vcf_dict[strain_name] = dict()
+        strain_parsed_vcf_dict[strain_name] = dict()
         # Use gzip to open the compressed file
         with gzip.open(vcf_file, 'r') as gvcf:
             for line in gvcf:
@@ -193,11 +196,13 @@ class VSNPTreeMethods(object):
                                     alt_length = len(sub_alt)
                         # Typecast pos to be an integer
                         pos = int(pos)
+                        if ref_genome not in strain_parsed_vcf_dict[strain_name]:
+                            strain_parsed_vcf_dict[strain_name][ref_genome] = dict()
                         # SNPs must have a deepvariant filter of 'PASS', be of length one, and have a quality
                         # score above the threshold
-                        if filter_stat == 'PASS' and len(ref) == 1 and alt_length == 1 and float(qual) > 30:
+                        if filter_stat == 'PASS' and len(ref) == 1 and alt_length == 1 and float(qual) > qual_cutoff:
                             # Populate the dictionary with the required key: value pairs
-                            parsed_vcf_dict[strain_name][pos] = {
+                            strain_parsed_vcf_dict[strain_name][ref_genome][pos] = {
                                 'CHROM': ref_genome,
                                 'REF': ref,
                                 'ALT': alt,
@@ -209,7 +214,7 @@ class VSNPTreeMethods(object):
                         # Insertions must still have a deepvariant filter of 'PASS', but must have a length
                         # greater than one
                         elif filter_stat == 'PASS' and alt_length > 1:
-                            parsed_vcf_dict[strain_name][pos] = {
+                            strain_parsed_vcf_dict[strain_name][ref_genome][pos] = {
                                 'CHROM': ref_genome,
                                 'REF': ref,
                                 'ALT': alt,
@@ -227,7 +232,7 @@ class VSNPTreeMethods(object):
                             # position encompassed by this range (add +1 due to needing to include the final
                             # position in the dictionary)
                             for i in range(int(pos), int(info) + 1):
-                                parsed_vcf_dict[strain_name][i] = {
+                                strain_parsed_vcf_dict[strain_name][ref_genome][i] = {
                                     'CHROM': ref_genome,
                                     'REF': ref,
                                     'ALT': alt,
@@ -236,7 +241,7 @@ class VSNPTreeMethods(object):
                                     'FILTER': 'DELETION',
                                     'STATS': format_dict
                                 }
-        return parsed_vcf_dict, strain_best_ref_dict, strain_best_ref_set_dict
+        return strain_parsed_vcf_dict, strain_best_ref_dict, strain_best_ref_set_dict
 
     @staticmethod
     def summarise_vcf_outputs(strain_parsed_vcf_dict):
@@ -252,23 +257,24 @@ class VSNPTreeMethods(object):
         pass_dict = dict()
         insertion_dict = dict()
         deletion_dict = dict()
-        for strain_name, pos_dict in strain_parsed_vcf_dict.items():
+        for strain_name, ref_dict in strain_parsed_vcf_dict.items():
             # Add the strain name key to the dictionaries
             pass_dict[strain_name] = 0
             insertion_dict[strain_name] = 0
             deletion_dict[strain_name] = 0
-            for pos, filter_dict in pos_dict.items():
-                # Extract the value from the 'FILTER' key from the dictionary
-                filter_value = filter_dict['FILTER']
-                # Increment the appropriate dictionary if the filter matches
-                if filter_value == 'PASS':
-                    pass_dict[strain_name] += 1
-                # As the dictionary is based on the reference position, insertions will be considered a single base
-                # Use the 'LENGTH filter to add the total insertion length to the dictionary
-                elif filter_value == 'INSERTION':
-                    insertion_dict[strain_name] += filter_dict['LENGTH']
-                elif filter_value == 'DELETION':
-                    deletion_dict[strain_name] += 1
+            for ref_chrom, pos_dict in ref_dict.items():
+                for pos, filter_dict in pos_dict.items():
+                    # Extract the value from the 'FILTER' key from the dictionary
+                    filter_value = filter_dict['FILTER']
+                    # Increment the appropriate dictionary if the filter matches
+                    if filter_value == 'PASS':
+                        pass_dict[strain_name] += 1
+                    # As the dictionary is based on the reference position, insertions will be considered a single base
+                    # Use the 'LENGTH filter to add the total insertion length to the dictionary
+                    elif filter_value == 'INSERTION':
+                        insertion_dict[strain_name] += filter_dict['LENGTH']
+                    elif filter_value == 'DELETION':
+                        deletion_dict[strain_name] += 1
         return pass_dict, insertion_dict, deletion_dict
 
     @staticmethod
@@ -405,27 +411,28 @@ class VSNPTreeMethods(object):
         consolidated_ref_snp_positions = dict()
         strain_snp_positions = dict()
         ref_snp_positions = dict()
-        for strain_name, vcf_dict in strain_parsed_vcf_dict.items():
+        for strain_name, ref_dict in strain_parsed_vcf_dict.items():
             best_ref = strain_consolidated_ref_dict[strain_name]
             strain_snp_positions[strain_name] = dict()
             # Initialise the reference genome key as required
             if best_ref not in consolidated_ref_snp_positions:
                 consolidated_ref_snp_positions[best_ref] = dict()
             # Iterate through all the positions
-            for pos, pos_dict in vcf_dict.items():
-                chrom = pos_dict['CHROM']
-                if chrom not in ref_snp_positions:
-                    ref_snp_positions[chrom] = dict()
-                if chrom not in strain_snp_positions[strain_name]:
-                    strain_snp_positions[strain_name][chrom] = list()
-                if chrom not in consolidated_ref_snp_positions[best_ref]:
-                    consolidated_ref_snp_positions[best_ref][chrom] = dict()
-                # Only consider locations that are called 'PASS' in the dictionary
-                if pos_dict['FILTER'] == 'PASS':
-                    # Populate the dictionary with the position and the reference sequence at that position
-                    consolidated_ref_snp_positions[best_ref][chrom][pos] = pos_dict['REF']
-                    ref_snp_positions[chrom][pos] = pos_dict['REF']
-                    strain_snp_positions[strain_name][chrom].append(pos)
+            for ref_chrom, vcf_dict in ref_dict.items():
+                for pos, pos_dict in vcf_dict.items():
+                    chrom = pos_dict['CHROM']
+                    if chrom not in ref_snp_positions:
+                        ref_snp_positions[chrom] = dict()
+                    if chrom not in strain_snp_positions[strain_name]:
+                        strain_snp_positions[strain_name][chrom] = list()
+                    if chrom not in consolidated_ref_snp_positions[best_ref]:
+                        consolidated_ref_snp_positions[best_ref][chrom] = dict()
+                    # Only consider locations that are called 'PASS' in the dictionary
+                    if pos_dict['FILTER'] == 'PASS':
+                        # Populate the dictionary with the position and the reference sequence at that position
+                        consolidated_ref_snp_positions[best_ref][chrom][pos] = pos_dict['REF']
+                        ref_snp_positions[chrom][pos] = pos_dict['REF']
+                        strain_snp_positions[strain_name][chrom].append(pos)
         return consolidated_ref_snp_positions, strain_snp_positions, ref_snp_positions
 
     @staticmethod
@@ -491,7 +498,7 @@ class VSNPTreeMethods(object):
         return group_positions_set
 
     @staticmethod
-    def filter_snps(group_positions_set, window_size=1000):
+    def filter_snps(group_positions_set, window_size=1000, threshold=2):
         """
         Remove any SNPs from regions of a defined window size with two or more SNPs
         :param group_positions_set: type DICT: Dictionary of species code: group name: reference chromosome: set of
@@ -515,14 +522,14 @@ class VSNPTreeMethods(object):
                         filtered_group_positions[species][group][ref_chrom] = set()
                     for pos in pos_list:
                         # Boolean on whether the SNP position is to be kep
-                        add_pos = True
+                        add_pos = 0
                         # Simple window of 1001 bp (pos - 500 to pos + 500)
                         for i in range(pos - bp_range, pos + bp_range):
-                            # If there is another SNP in this range, set add_pos to False
-                            if i in pos_list and i != pos and add_pos:
-                                add_pos = False
+                            # If there is another SNP in this range, increment add_pos
+                            if i in pos_list and i != pos:
+                                add_pos += 1
                         # If the position passes the filter, add it to the dictionary
-                        if add_pos:
+                        if add_pos <= threshold:
                             filtered_group_positions[species][group][ref_chrom].add(pos)
         return filtered_group_positions
 
@@ -564,7 +571,7 @@ class VSNPTreeMethods(object):
         # genome
         group_strain_snp_sequence = dict()
         species_group_best_ref = dict()
-        for strain_name, vcf_dict in strain_parsed_vcf_dict.items():
+        for strain_name, ref_dict in strain_parsed_vcf_dict.items():
             # Extract the set of groups to which the strain belongs
             groups = strain_groups[strain_name]
             # Extract the species code from the dictionary
@@ -600,7 +607,7 @@ class VSNPTreeMethods(object):
                         # dictionary, so these positions will yield KeyErrors
                         try:
                             # Extract the gVCF dictionary from the position-specific dictionary
-                            pos_dict = vcf_dict[pos]
+                            pos_dict = ref_dict[ref_chrom][pos]
                             if ref_chrom not in group_strain_snp_sequence[species][group][strain_name]:
                                 group_strain_snp_sequence[species][group][strain_name][ref_chrom] = dict()
                             # Deletions are recorded as a '-'
@@ -1042,7 +1049,7 @@ class VSNPTreeMethods(object):
                         # Don't need to look at the reference genome when finding SNPs
                         if strain_name != best_ref:
                             for ref_chrom, pos_list in ref_dict.items():
-                                if ref_chrom not in species_group_sorted_snps[species][group]:
+                                if ref_chrom not in species_group_sorted_snps[species][group][num_snps]:
                                     species_group_sorted_snps[species][group][num_snps][ref_chrom] = list()
                                 for pos in pos_list:
                                     try:
@@ -1057,6 +1064,12 @@ class VSNPTreeMethods(object):
                                     # the strain does not have a SNP at that position
                                     except KeyError:
                                         pass
+
+        for species, group_dict in species_group_sorted_snps.items():
+            for group, num_dict in group_dict.items():
+                for num_snps, chrom_dict in num_dict.items():
+                    for ref_chrom in chrom_dict:
+                        chrom_dict[ref_chrom] = sorted(chrom_dict[ref_chrom])
         return species_group_sorted_snps
 
     @staticmethod
