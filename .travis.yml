@@ -3,6 +3,12 @@ language: python
 python:
   - '3.6'
 
+env:
+  - MODEL_VERSION="0.7.2"
+  - MODEL_NAME="DeepVariant-inception_v3-${MODEL_VERSION}+data-wgs_standard"
+  - MODEL_HTTP_DIR="https://storage.googleapis.com/deepvariant/models/DeepVariant/${MODEL_VERSION}/${MODEL_NAME}"
+  - MODEL_DIR="${TRAVIS_BUILD_DIR}/vSNP/dependencies/deepvariant_model"
+
 services:
   - docker
 
@@ -17,7 +23,10 @@ before_install:
   - source activate vsnp_dev
   - pip install -e .
   - docker pull gcr.io/deepvariant-docker/deepvariant:latest
-
+  - mkdir -p ${MODEL_DIR}
+  - wget -P ${MODEL_DIR} ${MODEL_HTTP_DIR}/model.ckpt.data-00000-of-00001
+  - wget -P ${MODEL_DIR} ${MODEL_HTTP_DIR}/model.ckpt.index
+  - wget -P ${MODEL_DIR} ${MODEL_HTTP_DIR}/model.ckpt.meta
 
 script:
   - python -m pytest -s -v
