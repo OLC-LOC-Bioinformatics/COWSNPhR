@@ -24,7 +24,8 @@ before_install:
   - wget -P ${MODEL_DIR} ${MODEL_HTTP_DIR}/model.ckpt.data-00000-of-00001
   - wget -P ${MODEL_DIR} ${MODEL_HTTP_DIR}/model.ckpt.index
   - wget -P ${MODEL_DIR} ${MODEL_HTTP_DIR}/model.ckpt.meta
-  - wget -P ${TRAVIS_BUILD_DIR} https://ndownloader.figshare.com/files/14619260 | tar -xf 14619260
+  - wget -P ${TRAVIS_BUILD_DIR} https://ndownloader.figshare.com/files/14619260 
+  - tar -xf 14619260
 
 script:
   - python -m pytest -s -v
