@@ -174,7 +174,8 @@ class VCF(object):
                                                  strain_reference_abs_path_dict=self.strain_reference_abs_path_dict,
                                                  vcf_path=os.path.join(self.path, 'vcf_files'),
                                                  home=self.home,
-                                                 threads=self.threads)
+                                                 threads=self.threads,
+                                                 logfile=self.logfile)
         logging.info('Calling variants with deepvariant call_variants')
         strain_call_variants_dict = \
             VCFMethods.deepvariant_call_variants_multiprocessing(strain_variant_path_dict=strain_variant_path_dict,

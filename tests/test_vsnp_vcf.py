@@ -316,7 +316,8 @@ def test_deepvariant_make_examples():
                                              strain_reference_abs_path_dict=strain_reference_abs_path_dict,
                                              vcf_path=vcf_path,
                                              home=home,
-                                             threads=threads)
+                                             threads=threads,
+                                             logfile=logfile)
     assert len(strain_examples_dict['13-1941']) == threads
     for strain_name, gvcf_tfrecord in strain_gvcf_tfrecords_dict.items():
         gvcf_tfrecord = gvcf_tfrecord.split('@')[0]

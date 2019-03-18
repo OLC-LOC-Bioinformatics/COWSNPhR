@@ -695,7 +695,7 @@ class VCFMethods(object):
 
     @staticmethod
     def deepvariant_make_examples(strain_sorted_bam_dict, strain_name_dict, strain_reference_abs_path_dict, vcf_path,
-                                  home, threads):
+                                  home, threads, logfile):
         """
         Use make_examples from deepvariant to extract pileup images from sorted BAM files. Currently, deepvariant
         does not support Python 3, so it will be run in a Docker container. The make_examples command is multi-
@@ -708,6 +708,7 @@ class VCFMethods(object):
         :param vcf_path: type STR: Absolute path to folder in which all symlinks to .vcf files are to be created
         :param home: type STR: Absolute path to $HOME
         :param threads: type INT: Number of threads to use in the analyses
+        :param logfile: type STR: Absolute path to logfile basename
         :return: strain_examples_dict: Dictionary of strain name: sorted list of deepvariant created example files
         :return: strain_variant_path: Dictionary of strain name: absolute path to deepvariant working dir
         :return: strain_gvcf_tfrecords_dict: Dictionary of strain name: absolute path to gVCF TFRecord file of
@@ -764,7 +765,13 @@ class VCFMethods(object):
             if not os.path.isfile(vcf_file_name):
                 # If there are fewer output files than expected, run the system call
                 if len(output_examples) < threads - 1:
-                    run_subprocess(make_example_cmd)
+                    out, err = run_subprocess(make_example_cmd)
+                    write_to_logfile(out=out,
+                                     err=err,
+                                     logfile=logfile)
+                    print(make_example_cmd)
+                    print(out)
+                    print(err)
             # Populate the dictionary with the sorted list of all the sharded files
             strain_examples_dict[strain_name] = \
                 sorted(glob(os.path.join(deepvariant_dir, '{strain_name}_tfrecord-*.gz'
