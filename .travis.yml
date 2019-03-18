@@ -22,7 +22,7 @@ before_install:
   - docker pull gcr.io/deepvariant-docker/deepvariant:latest
   - wget -P ${TRAVIS_BUILD_DIR} https://ndownloader.figshare.com/files/14619260 
   - tar -xf 14619260
-  - echo ls $DEP_DIR
+  - ls $DEP_DIR
   - mkdir -p ${MODEL_DIR}
   - wget -P ${MODEL_DIR} ${MODEL_HTTP_DIR}/model.ckpt.data-00000-of-00001
   - wget -P ${MODEL_DIR} ${MODEL_HTTP_DIR}/model.ckpt.index
