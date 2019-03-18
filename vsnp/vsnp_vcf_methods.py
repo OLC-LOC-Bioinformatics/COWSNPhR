@@ -763,15 +763,16 @@ class VCFMethods(object):
             # Ensure that the final outputs don't already exist
             vcf_file_name = os.path.join(vcf_path, '{sn}.gvcf.gz'.format(sn=strain_name))
             if not os.path.isfile(vcf_file_name):
-                # If there are fewer output files than expected, run the system call
-                if len(output_examples) < threads - 1:
-                    out, err = run_subprocess(make_example_cmd)
-                    write_to_logfile(out=out,
-                                     err=err,
-                                     logfile=logfile)
-                    print(make_example_cmd)
-                    print(out)
-                    print(err)
+                # If there is only one thread, need to check to see if output_examples exists, and then check
+                # the number of threads
+                if not output_examples:
+                    # If there are fewer output files than expected (when running multithreaded) or only one thread,
+                    # run the system call
+                    if len(output_examples) < threads - 1 or threads == 1:
+                        out, err = run_subprocess(make_example_cmd)
+                        write_to_logfile(out=out,
+                                         err=err,
+                                         logfile=logfile)
             # Populate the dictionary with the sorted list of all the sharded files
             strain_examples_dict[strain_name] = \
                 sorted(glob(os.path.join(deepvariant_dir, '{strain_name}_tfrecord-*.gz'
