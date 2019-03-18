@@ -28,4 +28,4 @@ before_install:
   - tar -xf 14619260
 
 script:
-  - python -m pytest -s -v
+  - python -m pytest -s -vv --maxfail=1

@@ -872,6 +872,9 @@ class VCFMethods(object):
                                  logfile=logfile,
                                  samplelog=os.path.join(strain_folder, 'log.out'),
                                  sampleerr=os.path.join(strain_folder, 'log.err'))
+                print(call_variants_output)
+                print(out)
+                print(err)
         return strain_call_variants_dict
 
     @staticmethod
@@ -929,6 +932,9 @@ class VCFMethods(object):
                                  logfile=logfile,
                                  samplelog=os.path.join(strain_folder, 'log.out'),
                                  sampleerr=os.path.join(strain_folder, 'log.err'))
+                print(postprocess_variants_cmd)
+                print(out)
+                print(err)
         return strain_vcf_dict
 
     @staticmethod
