@@ -10,11 +10,6 @@ services:
   - docker
 
 before_install:
-  - echo $TRAVIS_BUILD_DIR
-  - echo $MODEL_DIR
-  - echo $MODEL_VERSION
-  - echo $MODEL_NAME
-  - echo $MODEL_HTTP_DIR
   - wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh;
   - bash miniconda.sh -b -p $HOME/miniconda
   - export PATH="$HOME/miniconda/bin:$PATH"
@@ -25,14 +20,13 @@ before_install:
   - source activate vsnp_dev
   - pip install -e .
   - docker pull gcr.io/deepvariant-docker/deepvariant:latest
+  - wget -P ${TRAVIS_BUILD_DIR} https://ndownloader.figshare.com/files/14619260 
+  - tar -xf 14619260
+  - echo ls $DEP_DIR
   - mkdir -p ${MODEL_DIR}
   - wget -P ${MODEL_DIR} ${MODEL_HTTP_DIR}/model.ckpt.data-00000-of-00001
   - wget -P ${MODEL_DIR} ${MODEL_HTTP_DIR}/model.ckpt.index
   - wget -P ${MODEL_DIR} ${MODEL_HTTP_DIR}/model.ckpt.meta
-  - wget -P ${TRAVIS_BUILD_DIR} https://ndownloader.figshare.com/files/14619260 
-  - tar -xf 14619260
-  - ls $MODEL_DIR
-  - ls $TRAVIS_BUILD_DIR
 
 script:
   - python -m pytest -s -vv --maxfail=1

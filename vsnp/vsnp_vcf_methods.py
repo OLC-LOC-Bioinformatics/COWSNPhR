@@ -773,9 +773,6 @@ class VCFMethods(object):
                         write_to_logfile(out=out,
                                          err=err,
                                          logfile=logfile)
-                        print(make_example_cmd)
-                        print(out)
-                        print(err)
             # Populate the dictionary with the sorted list of all the sharded files
             strain_examples_dict[strain_name] = \
                 sorted(glob(os.path.join(deepvariant_dir, '{strain_name}_tfrecord-*.gz'
@@ -872,9 +869,6 @@ class VCFMethods(object):
                                  logfile=logfile,
                                  samplelog=os.path.join(strain_folder, 'log.out'),
                                  sampleerr=os.path.join(strain_folder, 'log.err'))
-                print(call_variants_output)
-                print(out)
-                print(err)
         return strain_call_variants_dict
 
     @staticmethod
@@ -932,9 +926,6 @@ class VCFMethods(object):
                                  logfile=logfile,
                                  samplelog=os.path.join(strain_folder, 'log.out'),
                                  sampleerr=os.path.join(strain_folder, 'log.err'))
-                print(postprocess_variants_cmd)
-                print(out)
-                print(err)
         return strain_vcf_dict
 
     @staticmethod
