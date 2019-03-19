@@ -1219,8 +1219,6 @@ class VCFMethods(object):
         write_to_logfile(out=out,
                          err=err,
                          logfile=logfile)
-        print(out)
-        print(err)
 
     @staticmethod
     def parse_mlst_report(strain_name_dict, mlst_report):
