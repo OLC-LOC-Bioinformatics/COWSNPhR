@@ -109,7 +109,7 @@ class VSNPTreeMethods(object):
         Load the gVCF files into a dictionary
         :param strain_name: type STR: Name of strain being processed
         :param strain_vcf_dict: type DICT: Dictionary of strain name: absolute path to gVCF file
-        :param qual: type INT: Quality cutoff value to use.
+        :param qual_cutoff: type INT: Quality cutoff value to use.
         :return: parsed_vcf_dict: Dictionary of strain name: key: value pairs CHROM': ref_genome, 'REF': ref base,
             'ALT': alt base, 'QUAL': quality score, 'LENGTH': length of feature, 'FILTER': deepvariant filter call,
             'STATS': dictionary of format data
@@ -504,6 +504,7 @@ class VSNPTreeMethods(object):
         :param group_positions_set: type DICT: Dictionary of species code: group name: reference chromosome: set of
         group-specific SNP positions
         :param window_size: type INT: Window size to use when filtering SNPs. Default is 1000
+        :param threshold: type INT: Number of SNPs present within the window to trigger filtering
         :return: filtered_group_positions: Dictionary of species code: group name: reference chromosome: set of SNP
         unfiltered SNP positions
         """
@@ -635,6 +636,81 @@ class VSNPTreeMethods(object):
                             except KeyError:
                                 pass
         return group_strain_snp_sequence, species_group_best_ref
+
+    @staticmethod
+    def remove_identical_calls(group_strain_snp_sequence, consolidated_ref_snp_positions):
+        """
+        Remove any positions that have all identical SNP calls
+        :param group_strain_snp_sequence: type DICT: Dictionary of species: group: strain name: reference chromosome:
+        position: sequence
+        :param consolidated_ref_snp_positions: type DICT: Dictionary of reference name: absolute position: reference
+        base call
+        :return: non_ident_group_snp_seq: Dictionary of species: group: strain name: reference chromosome:
+        position: sequence
+        :return: non_ident_group_positions
+        """
+        # Initialise dictionary to store the number of strains with a particular base for positions of interest
+        snp_count_dict = dict()
+        # Dictionary to store the number of strains present in each grouping
+        species_group_strain_dict = dict()
+        # Dictionary to store the non-identical SNP sequence
+        non_ident_group_snp_seq = dict()
+        # Dictionary to store the non-identical SNP positions
+        non_ident_group_positions = dict()
+        for species, group_dict in group_strain_snp_sequence.items():
+            snp_count_dict[species] = dict()
+            species_group_strain_dict[species] = dict()
+            for group, strain_dict in group_dict.items():
+                snp_count_dict[species][group] = dict()
+                # Count the number of strains in the dictionary - 1 (reference is included, but will obviously match
+                # the reference sequence)
+                species_group_strain_dict[species][group] = len(strain_dict) - 1
+                for strain_name, ref_dict in strain_dict.items():
+                    # Filter out the reference strain
+                    if strain_name not in consolidated_ref_snp_positions:
+                        for ref_chrom, pos_dict in ref_dict.items():
+                            if ref_chrom not in snp_count_dict[species][group]:
+                                snp_count_dict[species][group][ref_chrom] = dict()
+                            for pos, seq in pos_dict.items():
+                                if pos not in snp_count_dict[species][group][ref_chrom]:
+                                    snp_count_dict[species][group][ref_chrom][pos] = dict()
+                                # If the base at this position hasn't been encountered, set the count to 1
+                                if seq not in snp_count_dict[species][group][ref_chrom][pos]:
+                                    snp_count_dict[species][group][ref_chrom][pos][seq] = 1
+                                # Otherwise, increment the count of this sequence
+                                else:
+                                    snp_count_dict[species][group][ref_chrom][pos][seq] += 1
+        # Find all the positions that are not all the same
+        for species, group_dict in snp_count_dict.items():
+            # Initialise the species key
+            non_ident_group_snp_seq[species] = dict()
+            non_ident_group_positions[species] = dict()
+            for group, ref_dict in group_dict.items():
+                # Initialise the group key
+                non_ident_group_snp_seq[species][group] = dict()
+                non_ident_group_positions[species][group] = dict()
+                for strain_name in group_strain_snp_sequence[species][group]:
+                    # Initialise the strain name key as required
+                    if strain_name not in non_ident_group_snp_seq[species][group]:
+                        non_ident_group_snp_seq[species][group][strain_name] = dict()
+                    for ref_chrom, pos_dict in ref_dict.items():
+                        # Initialise the reference chromosome key as required
+                        if ref_chrom not in non_ident_group_snp_seq[species][group][strain_name]:
+                            non_ident_group_snp_seq[species][group][strain_name][ref_chrom] = dict()
+                            non_ident_group_positions[species][group][ref_chrom] = set()
+                        for pos, seq_dict in pos_dict.items():
+                            # Extract the sequence for this strain at this position
+                            seq = group_strain_snp_sequence[species][group][strain_name][ref_chrom][pos]
+                            for current_seq, count in seq_dict.items():
+                                # If the count is less than the number of strains, add the strain-specific sequence
+                                # to the dictionary
+                                if count < species_group_strain_dict[species][group]:
+                                    if pos not in non_ident_group_snp_seq[species][group][strain_name][ref_chrom]:
+                                        non_ident_group_snp_seq[species][group][strain_name][
+                                            ref_chrom][pos] = seq
+                                        # Add the position to the set of (non-identical) group-specific positions
+                                        non_ident_group_positions[species][group][ref_chrom].add(pos)
+        return non_ident_group_snp_seq, non_ident_group_positions
 
     @staticmethod
     def create_multifasta(group_strain_snp_sequence, fasta_path, group_positions_set, nested=True):
@@ -1271,34 +1347,35 @@ class VSNPTreeMethods(object):
                 wb.close()
 
     @staticmethod
-    def format_workbook(wb):
+    def format_workbook(wb, font_size=8):
         """
         Create the required formats for the summary table
         :param wb: xlsxwriter workbook object
+        :param font_size: type INT: Font size to use in creating the report
         :return: workbook formats
         """
         # Add a bold format for header cells. Using a monotype font size 8, rotated 270 degrees
         header = wb.add_format({'bold': True,
                                 'font_name': 'Courier New',
-                                'font_size': 7,
+                                'font_size': font_size,
                                 'rotation': '90'})
         # Format for data cells. Monotype, size 8, top vertically justified
         courier = wb.add_format({'font_name': 'Courier New',
-                                 'font_size': 7,
+                                 'font_size': font_size,
                                  'align': 'top'})
         # Bold courier format
         bold_courier = wb.add_format({'font_name': 'Courier New',
-                                      'font_size': 7,
+                                      'font_size': font_size,
                                       'bold': True})
         # Bold courier top aligned
         top_bold_courier = wb.add_format({'font_name': 'Courier New',
-                                          'font_size': 7,
+                                          'font_size': font_size,
                                           'bold': True,
                                           'align': 'top'})
         # Create a format for the annotations: bold, blue text, rotated -90 degrees
         annotation = wb.add_format({'bold': True,
                                     'font_name': 'Courier New',
-                                    'font_size': 7,
+                                    'font_size': font_size,
                                     'font_color': '#0A028C',
                                     'rotation': '-90',
                                     'align': 'top'})
@@ -1307,28 +1384,28 @@ class VSNPTreeMethods(object):
             'A': wb.add_format({'bg_color': '#58FA82',
                                 'bold': True,
                                 'font_name': 'Courier New',
-                                'font_size': 7}),
+                                'font_size': font_size}),
             'C': wb.add_format({'bg_color': '#0000FF',
                                 'bold': True,
                                 'font_name': 'Courier New',
-                                'font_size': 7}),
+                                'font_size': font_size}),
             'G': wb.add_format({'bg_color': '#F7FE2E',
                                 'bold': True,
                                 'font_name': 'Courier New',
-                                'font_size': 7}),
+                                'font_size': font_size}),
             'T': wb.add_format({'bg_color': '#FF0000',
                                 'bold': True,
                                 'font_name': 'Courier New',
-                                'font_size': 7}),
+                                'font_size': font_size}),
             'N': wb.add_format({'bg_color': '#E2CFDD',
                                 'bold': True,
                                 'font_name': 'Courier New',
-                                'font_size': 7})
+                                'font_size': font_size})
         }
         # Create a format to handle IUPAC degenerate bases
         ambiguous_format = wb.add_format({'font_color': '#C70039',
                                           'bg_color': '#E2CFDD',
                                           'font_name': 'Courier New',
-                                          'font_size': 7,
+                                          'font_size': font_size,
                                           'bold': True})
         return header, courier, bold_courier, top_bold_courier, annotation, format_dict, ambiguous_format

@@ -82,24 +82,41 @@ class VSNPTree(object):
         logging.info('Determining to which groups strains are members using defining SNPs')
         self.strain_groups = VSNPTreeMethods.determine_groups(strain_snp_positions=strain_snp_positions,
                                                               defining_snp_dict=defining_snp_dict)
+        logging.debug('Calculated group membership: \n{results}'.format(
+            results='\n'.join(['{strain_name}: {group_list}'.format(strain_name=sn, group_list=gl)
+                               for sn, gl in self.strain_groups.items()])))
         logging.info('Determining group-specific SNP positions')
         group_positions_set = \
             VSNPTreeMethods.determine_group_snp_positions(strain_snp_positions=strain_snp_positions,
                                                           strain_groups=self.strain_groups,
                                                           strain_species_dict=self.strain_species_dict)
+        if self.debug:
+            logging.debug('Number of SNPs per group:')
+            for species_code, group_dict in group_positions_set.items():
+                for group, ref_dict in group_dict.items():
+                    for ref_chrom, pos_set in ref_dict.items():
+                        print(species_code, group, ref_chrom, len(pos_set))
         logging.info('Loading group-specific SNP sequence')
-        self.group_strain_snp_sequence, self.species_group_best_ref = \
+        group_strain_snp_sequence, self.species_group_best_ref = \
             VSNPTreeMethods.load_snp_sequence(strain_parsed_vcf_dict=self.strain_parsed_vcf_dict,
                                               strain_consolidated_ref_dict=self.strain_consolidated_ref_dict,
                                               group_positions_set=group_positions_set,
                                               strain_groups=self.strain_groups,
                                               strain_species_dict=self.strain_species_dict,
                                               consolidated_ref_snp_positions=consolidated_ref_snp_positions)
+        self.group_strain_snp_sequence, non_identical_group_positions = \
+            VSNPTreeMethods.remove_identical_calls(group_strain_snp_sequence=group_strain_snp_sequence,
+                                                   consolidated_ref_snp_positions=consolidated_ref_snp_positions)
         logging.info('Creating multi-FASTA files of group-specific core SNPs')
         group_folders, species_folders, self.group_fasta_dict = \
             VSNPTreeMethods.create_multifasta(group_strain_snp_sequence=self.group_strain_snp_sequence,
-                                              group_positions_set=group_positions_set,
+                                              group_positions_set=non_identical_group_positions,
                                               fasta_path=self.fasta_path)
+        logging.debug('Multi-FASTA alignment files created:')
+        if self.debug:
+            for species_code, group_dict in self.group_fasta_dict.items():
+                for group, fasta_file in group_dict.items():
+                    print(species_code, group, fasta_file)
 
     def phylogenetic_trees(self):
         logging.info('Creating phylogenetic trees with RAxML')
@@ -108,8 +125,17 @@ class VSNPTree(object):
                                                         strain_groups=self.strain_groups,
                                                         threads=self.threads,
                                                         logfile=self.logfile)
+        logging.debug('Tree files:')
+        if self.debug:
+            for species_code, group_dict in species_group_trees.items():
+                for group, tree_file in group_dict.items():
+                    print(species_code, group, tree_file['best_tree'])
         logging.info('Parsing strain order from phylogenetic trees')
         self.species_group_order_dict = VSNPTreeMethods.parse_tree_order(species_group_trees=species_group_trees)
+        logging.debug('Strain order:')
+        for species_code, group_dict in self.species_group_order_dict.items():
+            for group, strain_order in group_dict.items():
+                print(species_code, group, strain_order)
         logging.info('Copying phylogenetic trees to {tree_path}'.format(tree_path=self.tree_path))
         VSNPTreeMethods.copy_trees(species_group_trees=species_group_trees,
                                    tree_path=self.tree_path)
@@ -158,6 +184,7 @@ class VSNPTree(object):
         :param threads: type INT: Number of threads to use in the analyses
         :param debug: type BOOL: Boolean of whether debug level logs are printed to terminal
         """
+        logging.info('vSNP phylogenetic tree creation module')
         SetupLogging(debug=debug)
         self.debug = debug
         # Determine the path in which the sequence files are located. Allow for ~ expansion
