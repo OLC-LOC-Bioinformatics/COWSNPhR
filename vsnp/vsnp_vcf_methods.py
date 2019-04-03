@@ -695,7 +695,7 @@ class VCFMethods(object):
 
     @staticmethod
     def deepvariant_make_examples(strain_sorted_bam_dict, strain_name_dict, strain_reference_abs_path_dict, vcf_path,
-                                  home, threads, logfile):
+                                  home, threads, logfile, working_path=None):
         """
         Use make_examples from deepvariant to extract pileup images from sorted BAM files. Currently, deepvariant
         does not support Python 3, so it will be run in a Docker container. The make_examples command is multi-
@@ -709,6 +709,7 @@ class VCFMethods(object):
         :param home: type STR: Absolute path to $HOME
         :param threads: type INT: Number of threads to use in the analyses
         :param logfile: type STR: Absolute path to logfile basename
+        :param working_path: type STR: Absolute path to an additional volume to mount to docker container
         :return: strain_examples_dict: Dictionary of strain name: sorted list of deepvariant created example files
         :return: strain_variant_path: Dictionary of strain name: absolute path to deepvariant working dir
         :return: strain_gvcf_tfrecords_dict: Dictionary of strain name: absolute path to gVCF TFRecord file of
@@ -733,6 +734,10 @@ class VCFMethods(object):
             strain_gvcf_tfrecords_dict[strain_name] = \
                 '{gvcf_tfrecords}@{threads}.gz'.format(gvcf_tfrecords=gvcf_tfrecords,
                                                        threads=threads)
+            # Create the string of volume to mount to the container. Add the working path if it has been provided
+            volumes = '{home}:{home}'.format(home=home) if not working_path \
+                else '{home}:{home} -v {working_path}:{working_path}'.format(home=home,
+                                                                             working_path=working_path)
             # Create the system call. This consists of multiple parts:
             # 1) seq: generates range of numbers from start to end e.g. 0 to threads - 1
             # 2) parallel: executes commands in parallel. Use the following arguments:
@@ -743,7 +748,7 @@ class VCFMethods(object):
             # container, --task: enables multi-processing by splitting the input, and generating sharded output
             make_example_cmd = 'seq 0 {threads_minus_1} | ' \
                                'parallel --halt 2 --joblog {logfile} --res {deepvariant_dir} ' \
-                               'docker run --rm -v {home}:{home} ' \
+                               'docker run --rm -v {volumes} ' \
                                'gcr.io/deepvariant-docker/deepvariant:latest ' \
                                '/opt/deepvariant/bin/make_examples --mode calling --ref {ref} --reads {bam} ' \
                                '--examples {output_example}@{threads}.gz --gvcf {gvcf_tfrecords}@{threads}.gz ' \
@@ -751,7 +756,7 @@ class VCFMethods(object):
                 .format(threads_minus_1=threads - 1,
                         logfile=os.path.join(strain_folder, 'log.out'),
                         deepvariant_dir=deepvariant_dir,
-                        home=home,
+                        volumes=volumes,
                         ref=ref_genome,
                         bam=sorted_bam,
                         output_example=output_example,
@@ -781,7 +786,7 @@ class VCFMethods(object):
 
     @staticmethod
     def deepvariant_call_variants_multiprocessing(strain_variant_path_dict, strain_name_dict, dependency_path,
-                                                  vcf_path, home, threads, logfile):
+                                                  vcf_path, home, threads, logfile, working_path=None):
         """
         Create a multiprocessing pool to run deepvariant call_variants concurrently on strains
         :param strain_variant_path_dict: type DICT: Dictionary of strain name: absolute path to deepvariant output dir
@@ -791,6 +796,7 @@ class VCFMethods(object):
         :param home: type STR: Absolute path to $HOME
         :param threads: type INT: Number of threads used in the analyses
         :param logfile: type STR: Absolute path to logfile basename
+        :param working_path: type STR: Absolute path to an additional volume to mount to docker container
         :return: strain_call_variants_dict: Dictionary of strain name: absolute path to deepvariant call_variants
         outputs
         """
@@ -812,7 +818,8 @@ class VCFMethods(object):
                                                   [vcf_path] * list_length,
                                                   [home] * list_length,
                                                   [threads] * list_length,
-                                                  [logfile] * list_length)):
+                                                  [logfile] * list_length,
+                                                  [working_path] * list_length)):
             # Update the dictionary of variant call outputs
             strain_call_variants_dict.update(strain_call_variants)
         # Close and join the pool
@@ -822,7 +829,7 @@ class VCFMethods(object):
 
     @staticmethod
     def deepvariant_call_variants(strain_name, strain_variant_path_dict, strain_name_dict, dependency_path, vcf_path,
-                                  home, threads, logfile):
+                                  home, threads, logfile, working_path=None):
         """
         Perform variant calling. Process deepvariant examples files with call_variant
         :param strain_name: type STR: Name of strain being processed
@@ -833,6 +840,7 @@ class VCFMethods(object):
         :param home: type STR: Absolute path to $HOME
         :param threads: type INT: Number of threads used in the analyses
         :param logfile: type STR: Absolute path to logfile basename
+        :param working_path: type STR: Absolute path to an additional volume to mount to docker container
         :return: strain_call_variants_dict: Dictionary of strain name: absolute path to deepvariant call_variants
         outputs
         """
@@ -850,11 +858,15 @@ class VCFMethods(object):
             # Update the dictionary with the file path
             strain_call_variants_dict[strain_name] = call_variants_output
             output_example = '{output}_tfrecord'.format(output=os.path.join(deepvariant_dir, strain_name))
+            # Create the string of volume to mount to the container. Add the working path if it has been provided
+            volumes = '{home}:{home}'.format(home=home) if not working_path \
+                else '{home}:{home} -v {working_path}:{working_path}'.format(home=home,
+                                                                             working_path=working_path)
             # Set the system call. Use docker to run call_variants.
-            call_variants_cmd = 'docker run --rm -v {home}:{home} gcr.io/deepvariant-docker/deepvariant:latest ' \
+            call_variants_cmd = 'docker run --rm -v {volumes} gcr.io/deepvariant-docker/deepvariant:latest ' \
                                 '/opt/deepvariant/bin/call_variants --outfile {output_file} ' \
                                 '--examples {output_example}@{threads}.gz --checkpoint {model}'\
-                .format(home=home,
+                .format(volumes=volumes,
                         output_file=call_variants_output,
                         output_example=output_example,
                         threads=threads,
@@ -874,7 +886,7 @@ class VCFMethods(object):
     @staticmethod
     def deepvariant_postprocess_variants(strain_call_variants_dict, strain_variant_path_dict, strain_name_dict,
                                          strain_reference_abs_path_dict, strain_gvcf_tfrecords_dict, vcf_path,
-                                         home, logfile):
+                                         home, logfile, working_path=None):
         """
         Create .vcf.gz outputs
         :param strain_call_variants_dict: type DICT: Dictionary of strain name: absolute path to deepvariant
@@ -888,6 +900,7 @@ class VCFMethods(object):
         :param vcf_path: type STR: Absolute path to folder in which all symlinks to .vcf files are to be created
         :param home: type STR: Absolute path to $HOME
         :param logfile: type STR: Absolute path to logfile basename
+        :param working_path: type STR: Absolute path to an additional volume to mount to docker container
         :return: strain_vcf_dict: Dictionary of strain name: absolute path to deepvariant output VCF file
         """
         # Initialise a dictionary to store the absolute path of the .vcf.gz output files
@@ -903,13 +916,17 @@ class VCFMethods(object):
             gvcf_file = os.path.join(deepvariant_dir, '{sn}.gvcf.gz'.format(sn=strain_name))
             # Update the dictionary with the path to the output file
             strain_vcf_dict[strain_name] = gvcf_file
+            # Create the string of volume to mount to the container. Add the working path if it has been provided
+            volumes = '{home}:{home}'.format(home=home) if not working_path \
+                else '{home}:{home} -v {working_path}:{working_path}'.format(home=home,
+                                                                             working_path=working_path)
             # Set the system call. Use docker to run postprocess_variants
-            postprocess_variants_cmd = 'docker run --rm -v {home}:{home} gcr.io/deepvariant-docker/deepvariant:latest' \
+            postprocess_variants_cmd = 'docker run --rm -v {volumes} gcr.io/deepvariant-docker/deepvariant:latest' \
                                        ' /opt/deepvariant/bin/postprocess_variants --ref {ref} ' \
                                        '--nonvariant_site_tfrecord_path {gvcf_records} ' \
                                        '--infile {call_variants_output} --outfile {vcf_file} ' \
                                        '--gvcf_outfile {gvcf_file}'\
-                .format(home=home,
+                .format(volumes=volumes,
                         ref=ref_genome,
                         gvcf_records=gvcf_records,
                         call_variants_output=call_variants_output,
