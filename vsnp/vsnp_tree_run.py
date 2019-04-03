@@ -34,7 +34,8 @@ class VSNPTree(object):
         logging.info('Parsing gVCF files')
         self.strain_parsed_vcf_dict, self.strain_best_ref_dict, self.strain_best_ref_set_dict = \
             VSNPTreeMethods.load_vcf(strain_vcf_dict=self.strain_vcf_dict,
-                                     threads=self.threads)
+                                     threads=self.threads,
+                                     qual_cutoff=30)
         logging.debug('Parsed gVCF summaries:')
         if self.debug:
             pass_dict, insertion_dict, deletion_dict = \
@@ -133,9 +134,10 @@ class VSNPTree(object):
         logging.info('Parsing strain order from phylogenetic trees')
         self.species_group_order_dict = VSNPTreeMethods.parse_tree_order(species_group_trees=species_group_trees)
         logging.debug('Strain order:')
-        for species_code, group_dict in self.species_group_order_dict.items():
-            for group, strain_order in group_dict.items():
-                print(species_code, group, strain_order)
+        if self.debug:
+            for species_code, group_dict in self.species_group_order_dict.items():
+                for group, strain_order in group_dict.items():
+                    print(species_code, group, strain_order)
         logging.info('Copying phylogenetic trees to {tree_path}'.format(tree_path=self.tree_path))
         VSNPTreeMethods.copy_trees(species_group_trees=species_group_trees,
                                    tree_path=self.tree_path)
