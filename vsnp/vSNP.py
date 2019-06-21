@@ -1,155 +1,132 @@
 #!/usr/bin/env python3
-from accessoryFunctions.accessoryFunctions import modify_usage_error, SetupLogging
-from vsnp.vsnp_vcf_run import VCF
 from vsnp.vsnp_tree_run import VSNPTree
+from vsnp.vsnp_vcf_run import VCF
+from argparse import ArgumentParser, RawTextHelpFormatter
 import multiprocessing
-from time import time
-import click
-import sys
 import os
 
 __author__ = 'adamkoziol'
 __version__ = '0.0.1'
 
-SetupLogging()
-start = time()
-click_options = [
-    click.version_option(version=__version__),
-    click.option('-p', '--path',
-                 required=True,
-                 type=str,
-                 help='Specify path of folder containing files to be processed'),
-    click.option('-s', '--species',
-                 help='OPTIONAL: Used to FORCE species type: af, h37, ab1, ab3, suis1, suis2, suis3, mel1, mel1b, '
-                      'mel2, mel3, canis, ceti1, ceti2, ovis, neo, para, typhimurium-atcc13311, typhimurium-14028S, '
-                      'typhimurium-LT2, heidelberg-SL476, te_atcc35865, te_09-0932, te_89-0490, te_92-0972, '
-                      'te_98-0554, te_mce9, flu, newcaste, belize'),
-    click.option('-d', '--debug',
-                 is_flag=True,
-                 help='Print debugging statements to terminal'),
-    click.option('-g', '--get',
-                 is_flag=True,
-                 help='Debug core functions'),
-    click.option('-n', '--no_annotation',
-                 is_flag=True,
-                 help='Run pipeline without annotation'),
-    click.option('-e', '--elite',
-                 is_flag=True,
-                 help='create a tree with elite sample representation'),
-    click.option('-f', '--filter',
-                 is_flag=True,
-                 help='Find possible positions to filter'),
-    click.option('-t', '--threads',
-                 type=int,
-                 default=multiprocessing.cpu_count() - 1,
-                 help='Maximum number of threads to create. Default is number of CPUs - 1'),
-    click.option('-q', '--quiet',
-                 is_flag=True,
-                 help='[**APHIS only**] prevent stats going to cumulative collection'),
-    click.option('-m', '--email',
-                 type=str,
-                 help='[**APHIS only**, Specify your SMTP address for functionality. email options: '
-                      'all, s, tod, jess, suelee, chris, email_address'),
-    click.option('-u', '--upload',
-                 type=str,
-                 help='[**APHIS only**, specify own storage for functionality] upload files to the bioinfo drive')
-]
 
-# Subcommand-specific options
-click_vcf_options = []
-
-click_tree_options = [
-    click.option('-a', '--all_vcf',
-                 is_flag=True,
-                 help='Make tree using all VCFs'),
-]
-
-
-def add_options(options):
-    def _add_options(func):
-        for option in reversed(options):
-            func = option(func)
-        return func
-
-    return _add_options
-
-
-@click.group(context_settings=dict(help_option_names=['-h', '--help']))
-def group():
-    pass
-
-
-@group.command()
-@add_options(click_options)
-@add_options(click_vcf_options)
-@add_options(click_tree_options)
-def vsnp(**kwargs):
+def vsnp(args):
     """
     Full vSNP pipeline
     """
-    vsnp_vcf = VCF(path=kwargs['path'],
-                   threads=kwargs['threads'],
-                   debug=kwargs['debug'])
+    vsnp_vcf = VCF(path=args.path,
+                   threads=args.threads,
+                   debug=args.debug,
+                   reference_mapper=args.referencemapper,
+                   variant_caller=args.variantcaller,
+                   matching_hashes=args.matchinghashes)
     vsnp_vcf.main()
-    vsnp_tree = VSNPTree(path=os.path.join(kwargs['path'], 'vcf_files'),
-                         threads=kwargs['threads'],
-                         debug=kwargs['debug'])
+    vsnp_tree = VSNPTree(path=os.path.join(args.path, 'vcf_files'),
+                         threads=args.threads,
+                         debug=args.debug,
+                         filter_positions=args.filterpositions)
     vsnp_tree.main()
 
 
-@group.command()
-@add_options(click_options)
-@add_options(click_vcf_options)
-def vcf(**kwargs):
+def vcf(args):
     """
     VCF creation component of vSNP pipeline
     """
-    vsnp_vcf = VCF(path=kwargs['path'],
-                   threads=kwargs['threads'],
-                   debug=kwargs['debug'])
+    vsnp_vcf = VCF(path=args.path,
+                   threads=args.threads,
+                   debug=args.debug,
+                   reference_mapper=args.referencemapper,
+                   variant_caller=args.variantcaller,
+                   matching_hashes=args.matchinghashes)
     vsnp_vcf.main()
 
 
-@group.command()
-@add_options(click_options)
-@add_options(click_tree_options)
-def tree(**kwargs):
+def tree(args):
     """
     Phylogenetic tree creation
     """
-    vsnp_tree = VSNPTree(path=kwargs['path'],
-                         threads=kwargs['threads'],
-                         debug=kwargs['debug'])
+    vsnp_tree = VSNPTree(path=args.path,
+                         threads=args.threads,
+                         debug=args.debug,
+                         filter_positions=args.filterpositions)
     vsnp_tree.main()
 
 
-# Define the list of acceptable sub-programs
-program_list = ['vsnp', 'vcf', 'tree']
-# Extract the BLAST command to use from the command line arguments
-try:
-    program = sys.argv[1].lower() if sys.argv[1] in program_list else str()
-except IndexError:
-    program = str()
+def cli():
+    parser = ArgumentParser(
+        description='vSNP: bacterial validation SNP analysis tool. USDA APHIS Veterinary Services (VS) Mycobacterium '
+                    'tuberculosis complex, mainly M. bovis, and Brucella sp. SNP pipeline. Genotyping from whole '
+                    'genome sequence (WGS) outputting BAM, VCF, SNP tables and phylogentic trees.')
+    parser.add_argument('-v', '--version',
+                        action='version',
+                        version='%(prog)s commit {}'.format(__version__))
+    subparsers = parser.add_subparsers(title='Available analyses')
+    # Create a parental parser from which the subparsers can inherit arguments
+    parent_parser = ArgumentParser(add_help=False)
+    parent_parser.add_argument('-p', '--path',
+                               required=True,
+                               type=str,
+                               help='Specify path of folder containing files to be processed')
+    parent_parser.add_argument('-t', '--threads',
+                               default=multiprocessing.cpu_count() - 1,
+                               help='Number of threads. Default is the number of cores in the system - 1')
+    parent_parser.add_argument('-d', '--debug',
+                               action='store_true',
+                               help='Allow debug-level logging to be printed to the terminal')
+    # Create a subparser to run the VCF creation component of the script
+    vcf_subparser = subparsers.add_parser(parents=[parent_parser],
+                                          name='vcf',
+                                          description='',
+                                          formatter_class=RawTextHelpFormatter,
+                                          help='Create VCF files from FASTQ inputs')
+    vcf_subparser.add_argument('-r', '--referencemapper',
+                               choices=['bowtie2', 'bwa'],
+                               default='bwa',
+                               help='Specify the reference mapper to use. Choices are bwa and bowtie2. Default is bwa')
+    vcf_subparser.add_argument('-vc', '--variantcaller',
+                               choices=['deepvariant', 'deepvariant-gpu', 'freebayes'],
+                               default='freebayes',
+                               help='Specify the variant calling software to use. Choices are deepvariant, '
+                                    'deepvariant-gpu and freebayes. Default is freebayes')
+    vcf_subparser.add_argument('-m', '--matchinghashes',
+                               type=int,
+                               default=500,
+                               help='Minimum number of matching hashes returned from MASH in order for a query Brucella'
+                                    ' strain to be successfully matched to a reference strain. Default is 500')
+    vcf_subparser.set_defaults(func=vcf)
+    # Create a subparser to run the phylogenetic tree creation component of the script
+    tree_subparser = subparsers.add_parser(parents=[parent_parser],
+                                           name='tree',
+                                           description='',
+                                           formatter_class=RawTextHelpFormatter,
+                                           help='Perform phylogenetic analyses on VCF inputs')
+    tree_subparser.add_argument('-f', '--filterpositions',
+                                action='store_true',
+                                help='Use the Filtered_Regions.xlsx file to filter SNPs')
+    vcf_subparser.add_argument('-vc', '--variantcaller',
+                               choices=['deepvariant', 'freebayes'],
+                               default='freebayes',
+                               help='Specify the variant calling software used to create VCF files. '
+                                    'Choices are deepvariant and freebayes. Default is freebayes')
+    tree_subparser.set_defaults(func=tree)
+    # Create a subparser to run the full vSNP pipeline (VCF and subsequent phylogenetic tree creation)
+    vsnp_subparser = subparsers.add_parser(parents=[vcf_subparser],
+                                           name='vsnp',
+                                           description='',
+                                           formatter_class=RawTextHelpFormatter,
+                                           add_help=False)
+    vsnp_subparser.add_argument('-f', '--filterpositions',
+                                action='store_true',
+                                help='Use the Filtered_Regions.xlsx file to filter SNPs')
+    vsnp_subparser.set_defaults(func=vsnp)
+    # Get the arguments into an object
+    arguments = parser.parse_args()
+    # Run the appropriate function for each sub-parser.
+    if hasattr(arguments, 'func'):
+        arguments.func(arguments)
+    # If the 'func' attribute doesn't exist, display the basic help
+    else:
+        parser.parse_args(['-h'])
 
-# If the program was not specified, call the 'group help'
-if not program:
-    # Call the help
-    group(['--help'])
-
-# Convert the program string to the appropriate subcommand to use when modifying the usage error - ResFinder
-# and VirulenceFinder analyses are only available for BLAST programs that use a nt database
-subcommand_dict = {
-    'vsnp': vsnp,
-    'vcf': vcf,
-    'tree': tree,
-}
-try:
-    sub_command = subcommand_dict[program]
-    # Change the behaviour of click to print the help menu when a subcommand is specified, but is missing arguments
-    modify_usage_error(subcommand=sub_command,
-                       program_list=program_list)
-except KeyError:
-    pass
 
 if __name__ == '__main__':
-    group()
+    cli()
