@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from accessoryFunctions.accessoryFunctions import make_path, run_subprocess, write_to_logfile
+from olctools.accessoryFunctions.accessoryFunctions import make_path, run_subprocess, write_to_logfile
 from Bio.SeqRecord import SeqRecord
 from Bio.Alphabet import IUPAC
 from Bio.Seq import Seq
@@ -11,7 +11,9 @@ import xlsxwriter
 import shutil
 import pandas
 import gzip
+import xlrd
 import os
+import re
 
 __author__ = 'adamkoziol'
 
@@ -26,7 +28,7 @@ class VSNPTreeMethods(object):
         :return vcf_files: sorted list of all VCF files present in the supplied path
         """
         # Use glob to find the acceptable extensions of VCF files in the supplied path
-        vcf_files = glob(os.path.join(file_path, '*.gvcf.gz'))
+        vcf_files = glob(os.path.join(file_path, '*.gvcf*'))
         # Sort the list of VCF files
         vcf_files = sorted(vcf_files)
         # Ensure that there are actually files present in the path
@@ -70,7 +72,7 @@ class VSNPTreeMethods(object):
         return accession_species_dict
 
     @staticmethod
-    def load_vcf(strain_vcf_dict, threads, qual_cutoff=20):
+    def load_gvcf(strain_vcf_dict, threads, qual_cutoff=20):
         """
         Create a multiprocessing pool to parse gVCF files concurrently
         :param strain_vcf_dict: type DICT: Dictionary of strain name: absolute path to gVCF file
@@ -90,7 +92,7 @@ class VSNPTreeMethods(object):
         list_length = len(strain_list)
         # Use multiprocessing.Pool.starmap to process the samples in parallel
         # Supply the list of strains, as well as a list the length of the number of strains of each required variable
-        for parsed_vcf, strain_best_ref, strain_best_ref_set in p.starmap(VSNPTreeMethods.load_vcf_multiprocessing,
+        for parsed_vcf, strain_best_ref, strain_best_ref_set in p.starmap(VSNPTreeMethods.load_gvcf_multiprocessing,
                                                                           zip(strain_list,
                                                                               [strain_vcf_dict] * list_length,
                                                                               [qual_cutoff] * list_length)):
@@ -104,7 +106,7 @@ class VSNPTreeMethods(object):
         return strain_parsed_vcf_dict, strain_best_ref_dict, strain_best_ref_set_dict
 
     @staticmethod
-    def load_vcf_multiprocessing(strain_name, strain_vcf_dict, qual_cutoff):
+    def load_gvcf_multiprocessing(strain_name, strain_vcf_dict, qual_cutoff):
         """
         Load the gVCF files into a dictionary
         :param strain_name: type STR: Name of strain being processed
@@ -244,7 +246,93 @@ class VSNPTreeMethods(object):
         return strain_parsed_vcf_dict, strain_best_ref_dict, strain_best_ref_set_dict
 
     @staticmethod
-    def summarise_vcf_outputs(strain_parsed_vcf_dict):
+    def load_vcf(strain_vcf_dict):
+        """
+        Using vcf.Reader(), load the VCF files. Store the Reader objects, as well as the extracted reference sequence,
+        and its associated species code in dictionaries
+        :param strain_vcf_dict: type DICT: Dictionary of strain name: list of absolute path to VCF file
+        :return: strain_vcf_object_dict: Dictionary of strain name: VCF Reader object
+        :return: strain_best_ref_dict: Dictionary of strain name: extracted reference genome name
+        """
+        # Initialise dictionaries to store the parsed gVCF outputs and the closest reference genome
+        strain_parsed_vcf_dict = dict()
+        strain_best_ref_dict = dict()
+        strain_best_ref_set_dict = dict()
+        for strain_name, vcf_file in strain_vcf_dict.items():
+            strain_parsed_vcf_dict[strain_name] = dict()
+            with open(vcf_file, 'r') as filtered:
+                for line in filtered:
+                    # Add the VCF file header information to the filtered file
+                    if line.startswith('#'):
+                        pass
+                    else:
+                        # Split the line based on the columns
+                        ref_genome, pos, id_stat, ref, alt_string, qual, filter_stat, info_string, \
+                            format_stat, strain_info = line.rstrip().split('\t')
+                        # Initialise the ref_genome key
+                        if ref_genome not in strain_parsed_vcf_dict[strain_name]:
+                            strain_parsed_vcf_dict[strain_name][ref_genome] = dict()
+                        # Initialise the dictionary as required
+                        if strain_name not in strain_best_ref_dict:
+                            strain_best_ref_dict[strain_name] = ref_genome
+                            strain_best_ref_set_dict[strain_name] = {ref_genome}
+                        else:
+                            strain_best_ref_set_dict[strain_name].add(ref_genome)
+                        # Find the depth entry. e.g. DP=11
+                        depth_group = re.search('(DP=[0-9]+)', info_string)
+                        # Split the depth matching group on '=' and convert the depth to an int
+                        depth = int(str(depth_group.group()).split('=')[1])
+                        # Typecast pos to int
+                        pos = int(pos)
+                        # The 'Format' entry consists of several components: GT:DP:AD:RO:QR:AO:QA:GL for SNP positions,
+                        # andGQ:DP:MIN_DP:QR:RO:QA:AO for all other entries (see quoted information above)
+                        # Perform a dictionary comprehension to associate each format component with its
+                        # corresponding 'strain' component
+                        format_dict = dict()
+                        for entry in info_string.split(';'):
+                            category, value = entry.split('=')
+                            format_dict[category] = value
+                        # Store the zero coverage entries
+                        if depth == 0:
+                            strain_parsed_vcf_dict[strain_name][ref_genome][pos] = {
+                                'CHROM': ref_genome,
+                                'REF': ref,
+                                'ALT': alt_string,
+                                'QUAL': qual,
+                                'LENGTH': 1,
+                                'FILTER': 'DELETION',
+                                'STATS': format_dict
+                            }
+                        else:
+                            #
+                            if len(ref) == 1:
+                                # Only store SNPs with a quality score greater or equal to 150
+                                if float(qual) >= 150:
+                                    # Populate the dictionaries with the number of high quality SNPs
+                                    strain_parsed_vcf_dict[strain_name][ref_genome][pos] = {
+                                        'CHROM': ref_genome,
+                                        'REF': ref,
+                                        'ALT': alt_string,
+                                        'QUAL': qual,
+                                        'LENGTH': 1,
+                                        'FILTER': 'PASS',
+                                        'STATS': format_dict
+                                    }
+                            # Store all indels
+                            else:
+                                strain_parsed_vcf_dict[strain_name][ref_genome][pos] = {
+                                    'CHROM': ref_genome,
+                                    'REF': ref,
+                                    'ALT': alt_string,
+                                    'QUAL': qual,
+                                    'LENGTH': len(alt_string),
+                                    'FILTER': 'INSERTION',
+                                    'STATS': format_dict
+                                }
+        return strain_parsed_vcf_dict, strain_best_ref_dict, strain_best_ref_set_dict
+
+    @staticmethod
+    def summarise_gvcf_outputs(strain_parsed_vcf_dict):
         """
         Count the number of locations that PASS filter (SNP call), are considered INSERTIONS, or DELETIONS
         :param strain_parsed_vcf_dict: type DICT: Dictionary of strain name: reference position: parsed VCF dictionary
@@ -396,9 +484,9 @@ class VSNPTreeMethods(object):
         return defining_snp_dict
 
     @staticmethod
-    def load_snp_positions(strain_parsed_vcf_dict, strain_consolidated_ref_dict):
+    def load_gvcf_snp_positions(strain_parsed_vcf_dict, strain_consolidated_ref_dict):
         """
-        Parse the VCF files, and extract all the query and reference genome-specific SNP locations as well as the
+        Parse the gVCF files, and extract all the query and reference genome-specific SNP locations as well as the
         reference sequence
         :param strain_parsed_vcf_dict: type DICT: Dictionary of strain name: dictionary of parsed VCF data
         :param strain_consolidated_ref_dict: type DICT: Dictionary of strain name: extracted reference genome name
@@ -616,18 +704,33 @@ class VSNPTreeMethods(object):
                                 group_strain_snp_sequence[species][group][strain_name][ref_chrom][pos] = '-'
                             else:
                                 # Determine if the allele frequency is a mixed population
-                                allele_freq = float(pos_dict['STATS']['VAF'].split(',')[0])
-                                if allele_freq < 0.8:
-                                    # Determine the IUPAC code for any multi-allelic sites
-                                    for code, components in iupac.items():
-                                        if sorted(pos_dict['ALT']) == sorted(components):
-                                            group_strain_snp_sequence[species][group][strain_name][ref_chrom][pos] = \
-                                                code
-                                # Otherwise, use the first entry in the 'ALT' field (remember that this field is at
-                                # least 2 nt long: alt base,ref base
-                                else:
-                                    group_strain_snp_sequence[species][group][strain_name][ref_chrom][pos] = \
-                                        pos_dict['ALT'][0]
+                                try:
+                                    allele_freq = float(pos_dict['STATS']['VAF'].split(',')[0])
+                                    if allele_freq < 0.8:
+                                        # Determine the IUPAC code for any multi-allelic sites
+                                        for code, components in iupac.items():
+                                            if sorted(pos_dict['ALT']) == sorted(components):
+                                                group_strain_snp_sequence[species][group][strain_name][ref_chrom][pos] \
+                                                    = code
+                                    # Otherwise use the alt allele
+                                    else:
+                                        group_strain_snp_sequence[species][group][strain_name][ref_chrom][pos] = \
+                                            pos_dict['ALT'][0]
+                                # The FreeBayes stats dictionary doesn't have the VAF. Assign the alternate allele as
+                                # in the original vSNP.
+                                except KeyError:
+                                    # IF "AC' (alternate called alleles) is 1, find the IUPAC code of the ref + alt
+                                    # allele combination e.g. 13-1950 pos 714775: ref: G, alt: A, call: R
+                                    if pos_dict['STATS']['AC'] == '1':
+                                        for code, components in iupac.items():
+                                            if sorted([pos_dict['REF'], pos_dict['ALT']]) == sorted(components):
+                                                group_strain_snp_sequence[species][group][strain_name][ref_chrom][pos] \
+                                                    = code
+                                    # Otherwise use the alt allele
+                                    else:
+                                        group_strain_snp_sequence[species][group][strain_name][ref_chrom][pos] = \
+                                            pos_dict['ALT'][0]
+
                         # If the entry isn't in the dictionary, it is because it matches the reference sequence
                         except KeyError:
                             try:
@@ -911,6 +1014,97 @@ class VSNPTreeMethods(object):
                     if not os.path.isfile(destination_file):
                         shutil.copyfile(src=tree_file,
                                         dst=destination_file)
+
+    @staticmethod
+    def load_filter_file(reference_link_path_dict, strain_best_ref_dict, dependency_path):
+        """
+        Load the Excel files containing curated lists of locations or ranges of locations in the reference genome
+        that must be filtered prior to performing phylogenetic analyses
+        :param reference_link_path_dict: type DICT: Dictionary of strain name: relative path to reference genome
+        dependency folder
+        :param strain_best_ref_dict: type DICT: Dictionary of strain name: extracted reference genome name
+        :param dependency_path: type STR: Absolute path to dependencies
+        :return: filter_dict: Dictionary of reference file: group name: locations to filter
+        """
+        # Initialise a dictionary to store the locations to filter
+        filter_dict = dict()
+        for strain_name, best_ref_path in reference_link_path_dict.items():
+            # Extract the name of the best reference from the dictionary e.g. NC_017250.1
+            best_ref = strain_best_ref_dict[strain_name]
+            # Set the name of the Excel file storing the regions to filter
+            filter_file = os.path.join(dependency_path, best_ref_path, 'Filtered_Regions.xlsx')
+            if os.path.isfile(filter_file):
+                # Only load the file once per reference file
+                if best_ref not in filter_dict:
+                    # Open the file using xlrd
+                    wb = xlrd.open_workbook(filter_file)
+                    # Create a list of all the sheet names
+                    sheets = wb.sheet_names()
+                    # Iterate through all the sheets
+                    for sheet in sheets:
+                        # Initialise the dictionary with the sheet name - this will be the same as the best reference
+                        # file name
+                        filter_dict[sheet] = dict()
+                        # Load each worksheet
+                        ws = wb.sheet_by_name(sheet)
+                        # Iterate through all the columns in the worksheet
+                        for col_num in range(ws.ncols):
+                            # Extract the group name from the header e.g. Bsuis1-All
+                            group_name = ws.col_values(col_num)[0]
+                            # Initialise the group name as a list in the nested dictionary
+                            filter_dict[sheet][group_name] = list()
+                            # Create a list of all the non-header entries in the column
+                            entries = ws.col_values(col_num)[1:]
+                            # Remove blank cells and typecast the entries to strings
+                            entries = [str(entry) for entry in entries if entry]
+                            for value in entries:
+                                # Certain filtered SNPs are actually ranges
+                                if "-" not in value:
+                                    # Convert the value to an integer via a float
+                                    value = int(float(value))
+                                    # Add the position to the dictionary
+                                    filter_dict[sheet][group_name].append(value)
+                                elif "-" in value:
+                                    # Split the range on '-' e.g. '524691-524833' becomes ['524691', '524833']
+                                    values = value.split("-")
+                                    # Iterate through all the position in the range of values
+                                    for position in range(int(values[0]), int(values[1]) + 1):
+                                        # Add each position in the range to the dictionary
+                                        filter_dict[sheet][group_name].append(position)
+        return filter_dict
+
+    @staticmethod
+    def filter_positions(strain_snp_positions, strain_groups, strain_best_ref_dict, filter_dict, strain_snp_sequence):
+        """
+        Use the filtered positions to filter SNPs found in the strains
+        :param strain_snp_positions: type DICT: Dictionary of strain name: all strain-specific SNP positions
+        :param strain_groups: type DICT: Dictionary of strain name: list of group(s) for which the strain contains the
+        defining SNP
+        :param strain_best_ref_dict: type DICT: Dictionary of strain name: extracted reference genome name
+        :param filter_dict: type DICT: Dictionary of reference file: group name: locations to filter
+        :param strain_snp_sequence: type DICT: Dictionary of strain name: SNP position: strain-specific sequence
+        :return: strain_filtered_sequences: Dictionary of strain name: SNP pos: SNP sequence
+        """
+        # Initialise a dictionary to store the location and sequence of SNPs that pass filter
+        strain_filtered_sequences = dict()
+        for strain_name, snp_positions in strain_snp_positions.items():
+            strain_filtered_sequences[strain_name] = dict()
+            # Extract the necessary variables from dictionaries
+            groups = strain_groups[strain_name]
+            best_ref = strain_best_ref_dict[strain_name]
+            for group, positions in filter_dict[best_ref].items():
+                # All strains of a particular species fall within the 'All' category
+                if 'All' in group or group in groups:
+                    # Initialise the dictionary with the group
+                    strain_filtered_sequences[strain_name][group] = dict()
+                    for snp_pos in snp_positions:
+                        # Use the filter positions to remove unwanted positions
+                        if snp_pos not in positions:
+                            # Populate the dictionary with the position and the extracted SNP sequence from
+                            # the dictionary
+                            strain_filtered_sequences[strain_name][group][snp_pos] = \
+                                strain_snp_sequence[strain_name][snp_pos]
+        return strain_filtered_sequences
 
     @staticmethod
     def load_genbank_file(reference_link_path_dict, strain_best_ref_set_dict, dependency_path):

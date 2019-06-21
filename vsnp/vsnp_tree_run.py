@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from accessoryFunctions.accessoryFunctions import SetupLogging
+from olctools.accessoryFunctions.accessoryFunctions import SetupLogging
 from vsnp.vsnp_tree_methods import VSNPTreeMethods
 from datetime import datetime
 import logging
@@ -32,14 +32,18 @@ class VSNPTree(object):
         self.accession_species_dict = VSNPTreeMethods.parse_accession_species(ref_species_file=os.path.join(
             self.dependency_path, 'mash', 'species_accessions.csv'))
         logging.info('Parsing gVCF files')
-        self.strain_parsed_vcf_dict, self.strain_best_ref_dict, self.strain_best_ref_set_dict = \
-            VSNPTreeMethods.load_vcf(strain_vcf_dict=self.strain_vcf_dict,
-                                     threads=self.threads,
-                                     qual_cutoff=30)
+        if self.variant_caller == 'deepvariant':
+            self.strain_parsed_vcf_dict, self.strain_best_ref_dict, self.strain_best_ref_set_dict = \
+                VSNPTreeMethods.load_gvcf(strain_vcf_dict=self.strain_vcf_dict,
+                                          threads=self.threads,
+                                          qual_cutoff=30)
+        else:
+            self.strain_parsed_vcf_dict, self.strain_best_ref_dict, self.strain_best_ref_set_dict = \
+                VSNPTreeMethods.load_vcf(strain_vcf_dict=self.strain_vcf_dict)
         logging.debug('Parsed gVCF summaries:')
         if self.debug:
             pass_dict, insertion_dict, deletion_dict = \
-                VSNPTreeMethods.summarise_vcf_outputs(strain_parsed_vcf_dict=self.strain_parsed_vcf_dict)
+                VSNPTreeMethods.summarise_gvcf_outputs(strain_parsed_vcf_dict=self.strain_parsed_vcf_dict)
 
             logging.debug('SNP bases: \n{results}'.format(
                 results='\n'.join(['{strain_name}: {pass_filter}'.format(strain_name=sn, pass_filter=ps)
@@ -78,8 +82,8 @@ class VSNPTree(object):
                                                   dependency_path=self.dependency_path)
         logging.info('Loading SNP positions')
         consolidated_ref_snp_positions, strain_snp_positions, self.ref_snp_positions = \
-            VSNPTreeMethods.load_snp_positions(strain_parsed_vcf_dict=self.strain_parsed_vcf_dict,
-                                               strain_consolidated_ref_dict=self.strain_consolidated_ref_dict)
+            VSNPTreeMethods.load_gvcf_snp_positions(strain_parsed_vcf_dict=self.strain_parsed_vcf_dict,
+                                                    strain_consolidated_ref_dict=self.strain_consolidated_ref_dict)
         logging.info('Determining to which groups strains are members using defining SNPs')
         self.strain_groups = VSNPTreeMethods.determine_groups(strain_snp_positions=strain_snp_positions,
                                                               defining_snp_dict=defining_snp_dict)
@@ -91,6 +95,9 @@ class VSNPTree(object):
             VSNPTreeMethods.determine_group_snp_positions(strain_snp_positions=strain_snp_positions,
                                                           strain_groups=self.strain_groups,
                                                           strain_species_dict=self.strain_species_dict)
+        # Filter the positions if desired
+        if self.filter_positions:
+            group_positions_set = VSNPTreeMethods.filter_snps(group_positions_set)
         if self.debug:
             logging.debug('Number of SNPs per group:')
             for species_code, group_dict in group_positions_set.items():
@@ -180,11 +187,13 @@ class VSNPTree(object):
                                              species_group_num_snps=self.species_group_num_snps,
                                              summary_path=self.summary_path)
 
-    def __init__(self, path, threads, debug=False):
+    def __init__(self, path, threads, debug, variant_caller, filter_positions):
         """
         :param path: type STR: Path of folder containing VCF files
         :param threads: type INT: Number of threads to use in the analyses
         :param debug: type BOOL: Boolean of whether debug level logs are printed to terminal
+        :param filter_positions: type BOOL: Boolean of whether the calculated SNPs should be filtered with the
+        Filtered_Regions.xlsx file
         """
         logging.info('vSNP phylogenetic tree creation module')
         SetupLogging(debug=debug)
@@ -209,6 +218,8 @@ class VSNPTree(object):
         self.dependency_path = os.path.join(os.path.dirname(self.script_path), 'dependencies')
         assert os.path.isdir(self.dependency_path), 'Something went wrong with the install. Cannot locate the ' \
                                                     'dependencies folder in: {sp}'.format(sp=self.script_path)
+        self.variant_caller = variant_caller
+        self.filter_positions = filter_positions
         self.logfile = os.path.join(self.file_path, 'log')
         self.start_time = datetime.now()
         # initialise variables
