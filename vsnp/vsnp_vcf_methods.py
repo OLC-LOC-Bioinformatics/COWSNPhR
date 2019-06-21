@@ -467,7 +467,6 @@ class VCFMethods(object):
                 # Extract the required variables from the appropriate dictionaries
                 strain_folder = strain_name_dict[strain_name]
                 reference_index = strain_mapper_index_dict[strain_name]
-                abs_ref_link = reference_index + '.fasta'
                 # Set the absolute path of the sorted BAM file
                 sorted_bam = os.path.join(strain_folder, '{sn}_sorted.bam'.format(sn=strain_name))
                 if reference_mapper == 'bowtie2':
@@ -484,7 +483,7 @@ class VCFMethods(object):
                         .format(sn=strain_name,
                                 fastq=' '.join(fastq_files),
                                 threads=threads,
-                                abs_ref_link=abs_ref_link)
+                                abs_ref_link=reference_index)
                 # Add the SAM-BAM conversion, duplicate read removal, and sorting commands to the mapping command
                 # samtools view (-h: include headers, -b: out BAM, -T: target file)
                 # samtools rmdup to remove duplicate reads
@@ -493,7 +492,7 @@ class VCFMethods(object):
                            ' | samtools rmdup - -S -' \
                            ' | samtools sort - -@ {threads} -o {sorted_bam}'\
                     .format(threads=threads,
-                            abs_ref_link=abs_ref_link,
+                            abs_ref_link=reference_index,
                             sorted_bam=sorted_bam)
                 # Only run the system call if the sorted BAM file doesn't already exist
                 if not os.path.isfile(sorted_bam):

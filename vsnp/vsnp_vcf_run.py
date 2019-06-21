@@ -3,8 +3,10 @@ from olctools.accessoryFunctions.accessoryFunctions import SetupLogging
 from vsnp.vsnp_vcf_methods import VCFMethods
 from datetime import datetime
 from pathlib import Path
+import urllib.request
 import subprocess
 import logging
+import tarfile
 import os
 
 __author__ = 'adamkoziol'
@@ -323,7 +325,18 @@ class VCF(object):
         # Extract the path of the folder containing this script
         self.script_path = os.path.abspath(os.path.dirname(__file__))
         # Use the script path to set the absolute path of the dependencies folder
-        self.dependency_path = os.path.join(os.path.dirname(self.script_path), 'dependencies')
+        self.dependency_root = os.path.dirname(self.script_path)
+        self.dependency_path = os.path.join(self.dependency_root, 'dependencies')
+        # If the dependency folder is not present, download it
+        if not os.path.isdir(self.dependency_path):
+            dep_tar = os.path.join(self.dependency_root, '14619260')
+            logging.info('Dependency path not found. Downloading dependencies')
+            urllib.request.urlretrieve('https://ndownloader.figshare.com/files/14619260',
+                                       dep_tar)
+            tar = tarfile.open(dep_tar)
+            tar.extractall(path=self.dependency_root)
+            tar.close()
+            os.remove(dep_tar)
         assert os.path.isdir(self.dependency_path), 'Something went wrong with the install. Cannot locate the ' \
                                                     'dependencies folder in: {sp}'.format(sp=self.script_path)
         self.reference_mapper = reference_mapper

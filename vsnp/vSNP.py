@@ -6,7 +6,7 @@ import multiprocessing
 import os
 
 __author__ = 'adamkoziol'
-__version__ = '0.0.1'
+__version__ = '0.0.11'
 
 
 def vsnp(args):
@@ -23,7 +23,8 @@ def vsnp(args):
     vsnp_tree = VSNPTree(path=os.path.join(args.path, 'vcf_files'),
                          threads=args.threads,
                          debug=args.debug,
-                         filter_positions=args.filterpositions)
+                         filter_positions=args.filterpositions,
+                         variant_caller=args.variantcaller)
     vsnp_tree.main()
 
 
@@ -47,7 +48,8 @@ def tree(args):
     vsnp_tree = VSNPTree(path=args.path,
                          threads=args.threads,
                          debug=args.debug,
-                         filter_positions=args.filterpositions)
+                         filter_positions=args.filterpositions,
+                         variant_caller=args.variantcaller)
     vsnp_tree.main()
 
 
@@ -102,18 +104,32 @@ def cli():
     tree_subparser.add_argument('-f', '--filterpositions',
                                 action='store_true',
                                 help='Use the Filtered_Regions.xlsx file to filter SNPs')
-    vcf_subparser.add_argument('-vc', '--variantcaller',
-                               choices=['deepvariant', 'freebayes'],
-                               default='freebayes',
-                               help='Specify the variant calling software used to create VCF files. '
-                                    'Choices are deepvariant and freebayes. Default is freebayes')
+    tree_subparser.add_argument('-vc', '--variantcaller',
+                                choices=['deepvariant', 'freebayes'],
+                                default='freebayes',
+                                help='Specify the variant calling software used to create VCF files. '
+                                     'Choices are deepvariant and freebayes. Default is freebayes')
     tree_subparser.set_defaults(func=tree)
     # Create a subparser to run the full vSNP pipeline (VCF and subsequent phylogenetic tree creation)
-    vsnp_subparser = subparsers.add_parser(parents=[vcf_subparser],
+    vsnp_subparser = subparsers.add_parser(parents=[parent_parser],
                                            name='vsnp',
                                            description='',
                                            formatter_class=RawTextHelpFormatter,
-                                           add_help=False)
+                                           help='Full vSNP pipeline.')
+    vsnp_subparser.add_argument('-r', '--referencemapper',
+                                choices=['bowtie2', 'bwa'],
+                                default='bwa',
+                                help='Specify the reference mapper to use. Choices are bwa and bowtie2. Default is bwa')
+    vsnp_subparser.add_argument('-vc', '--variantcaller',
+                                choices=['deepvariant', 'deepvariant-gpu', 'freebayes'],
+                                default='freebayes',
+                                help='Specify the variant calling software to use. Choices are deepvariant, '
+                                     'deepvariant-gpu and freebayes. Default is freebayes')
+    vsnp_subparser.add_argument('-m', '--matchinghashes',
+                                type=int,
+                                default=500,
+                                help='Minimum number of matching hashes returned from MASH in order for a query B'
+                                     'rucella strain to be successfully matched to a reference strain. Default is 500')
     vsnp_subparser.add_argument('-f', '--filterpositions',
                                 action='store_true',
                                 help='Use the Filtered_Regions.xlsx file to filter SNPs')

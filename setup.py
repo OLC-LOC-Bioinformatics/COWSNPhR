@@ -1,17 +1,14 @@
 #!/usr/bin/env python
 from setuptools import setup, find_packages
+import os
 __author__ = 'stuber, adamkoziol'
 
 setup(
     name="vsnpdev",
-    version="0.0.08",
+    version="0.0.14",
     packages=find_packages(),
     include_package_data=True,
-    entry_points={
-        'console_scripts': [
-            'vSNP = vsnp.vSNP:group'
-        ],
-    },
+    scripts=[os.path.join('vsnp', 'vSNP.py')],
     license='MIT',
     author='Adam Koziol',
     author_email='adam.koziol@canada.ca',
