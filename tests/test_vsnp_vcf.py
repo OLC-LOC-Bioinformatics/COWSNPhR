@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-from accessoryFunctions.accessoryFunctions import filer, make_path
+from olctools.accessoryFunctions.accessoryFunctions import filer, make_path
 from vsnp.vsnp_vcf_methods import VCFMethods
-from vsnp.vsnp_vcf_run import VCF
+from vsnp.vsnp_vcf_run import VCF, run_cmd
 from datetime import datetime
 from pathlib import Path
 import multiprocessing
 from glob import glob
+import subprocess
 import pytest
 import shutil
 import os
@@ -23,31 +24,49 @@ home = str(Path.home())
 start_time = datetime.now()
 
 
-def test_import_vsnp():
-    with pytest.raises(SystemExit):
-        import vsnp.vSNP
+def test_deepvariant_version():
+    global deepvariant_version
+    deepvariant_version = '0.8.0'
+    cmd = 'docker run --rm gcr.io/deepvariant-docker/deepvariant:{dvv} ' \
+          '/opt/deepvariant/bin/call_variants -h'.format(dvv=deepvariant_version)
+    cmd_sts, return_code = run_cmd(cmd)
+    if not cmd_sts:
+        deepvariant_version = '0.7.2'
+        cmd = 'docker run --rm gcr.io/deepvariant-docker/deepvariant:{dvv} ' \
+              '/opt/deepvariant/bin/call_variants -h'.format(dvv=deepvariant_version)
+        cmd_sts, return_code = run_cmd(cmd=cmd)
+        if not cmd_sts:
+            raise subprocess.CalledProcessError(return_code, cmd=cmd)
 
 
 def test_invalid_path():
     with pytest.raises(AssertionError):
         assert VCF(path='not_a_real_path',
-                   threads=threads)
-
-
-def test_no_threads():
-    with pytest.raises(TypeError):
-        assert VCF(path=file_path)
+                   threads=threads,
+                   debug=False,
+                   reference_mapper='bowtie2',
+                   variant_caller='freebayes',
+                   matching_hashes=500)
 
 
 def test_valid_path():
     vcf_object = VCF(path=file_path,
-                     threads=threads)
+                     threads=threads,
+                     debug=False,
+                     reference_mapper='bowtie2',
+                     variant_caller='deepvariant',
+                     matching_hashes=500)
     assert vcf_object
 
 
-def test_invalid_tilde_path():
+def test_tilde_path():
     VCF(path='~',
-        threads=threads)
+        threads=threads,
+        debug=False,
+        reference_mapper='bowtie2',
+        variant_caller='freebayes',
+        matching_hashes=500
+        )
 
 
 def test_empty_filer():
@@ -218,7 +237,8 @@ def test_mash_best_ref():
     global strain_best_ref_dict, strain_ref_matches_dict, strain_species_dict
     strain_best_ref_dict, strain_ref_matches_dict, strain_species_dict = \
         VCFMethods.mash_best_ref(mash_dist_dict=mash_dist_dict,
-                                 accession_species_dict=accession_species_dict)
+                                 accession_species_dict=accession_species_dict,
+                                 min_matches=500)
     assert strain_best_ref_dict['13-1950'] == 'NC_002945v4.fasta'
     assert strain_ref_matches_dict['13-1950'] == 916
     assert strain_species_dict['13-1950'] == 'af'
@@ -232,26 +252,73 @@ def test_reference_file_paths():
     assert reference_link_path_dict['13-1950'] == 'mycobacterium/tbc/af2122/script_dependents/NC_002945v4.fasta'
 
 
+def test_bwa_index():
+    global strain_mapper_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict
+    strain_mapper_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict = \
+        VCFMethods.index_ref_genome(reference_link_path_dict=reference_link_path_dict,
+                                    dependency_path=dependency_path,
+                                    logfile=logfile,
+                                    reference_mapper='bwa')
+    assert os.path.isfile(os.path.join(dependency_path, 'mycobacterium', 'tbc', 'af2122', 'script_dependents',
+                                       'NC_002945v4.fasta.bwt'))
+    assert os.path.split(strain_mapper_index_dict['13-1950'])[-1] == 'NC_002945v4.fasta'
+
+
 def test_bowtie2_build():
-    global strain_bowtie2_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict
-    strain_bowtie2_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict = \
-        VCFMethods.bowtie2_build(reference_link_path_dict=reference_link_path_dict,
-                                 dependency_path=dependency_path,
-                                 logfile=logfile)
+    global strain_mapper_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict
+    strain_mapper_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict = \
+        VCFMethods.index_ref_genome(reference_link_path_dict=reference_link_path_dict,
+                                    dependency_path=dependency_path,
+                                    logfile=logfile,
+                                    reference_mapper='bowtie2')
     assert os.path.isfile(os.path.join(dependency_path, 'mycobacterium', 'tbc', 'af2122', 'script_dependents',
                                        'NC_002945v4.1.bt2'))
-    assert os.path.split(strain_bowtie2_index_dict['13-1950'])[-1] == 'NC_002945v4'
+    assert os.path.split(strain_mapper_index_dict['13-1950'])[-1] == 'NC_002945v4'
+
+
+def test_bwa_mem():
+    global bwa_sorted_bam_dict
+    # Create a dictionary of the subset of strains to process with bwa
+    bwa_strain_fastq_dict = dict()
+    for strain_name, fastq_files in strain_fastq_dict.items():
+        if strain_name in ['13-1941', '13-1950']:
+            bwa_strain_fastq_dict[strain_name] = fastq_files
+    bwa_sorted_bam_dict = VCFMethods.map_ref_genome(strain_fastq_dict=bwa_strain_fastq_dict,
+                                                    strain_name_dict=strain_name_dict,
+                                                    strain_mapper_index_dict=strain_mapper_index_dict,
+                                                    threads=threads,
+                                                    logfile=logfile,
+                                                    reference_mapper='bwa')
+    for strain_name, sorted_bam in bwa_sorted_bam_dict.items():
+        assert os.path.isfile(sorted_bam)
 
 
 def test_bowtie2_map():
-    global strain_sorted_bam_dict
-    strain_sorted_bam_dict = VCFMethods.bowtie2_map(strain_fastq_dict=strain_fastq_dict,
-                                                    strain_name_dict=strain_name_dict,
-                                                    strain_bowtie2_index_dict=strain_bowtie2_index_dict,
-                                                    threads=threads,
-                                                    logfile=logfile)
-    for strain_name, sorted_bam in strain_sorted_bam_dict.items():
+    global bowtie2_sorted_bam_dict
+    # Create a dictionary of the subset of strains to process with bowtie2
+    bowtie2_strain_fastq_dict = dict()
+    for strain_name, fastq_files in strain_fastq_dict.items():
+        if strain_name in ['B13-0234', 'NC_002695']:
+            bowtie2_strain_fastq_dict[strain_name] = fastq_files
+    bowtie2_sorted_bam_dict = VCFMethods.map_ref_genome(strain_fastq_dict=bowtie2_strain_fastq_dict,
+                                                        strain_name_dict=strain_name_dict,
+                                                        strain_mapper_index_dict=strain_mapper_index_dict,
+                                                        threads=threads,
+                                                        logfile=logfile,
+                                                        reference_mapper='bowtie2')
+    for strain_name, sorted_bam in bowtie2_sorted_bam_dict.items():
         assert os.path.isfile(sorted_bam)
+
+
+def test_merge_bwa_bowtie_bam_dict():
+    global strain_sorted_bam_dict
+    strain_sorted_bam_dict = dict()
+    for strain_name, sorted_bam in bwa_sorted_bam_dict.items():
+        strain_sorted_bam_dict[strain_name] = sorted_bam
+    for strain_name, sorted_bam in bowtie2_sorted_bam_dict.items():
+        strain_sorted_bam_dict[strain_name] = sorted_bam
+    assert strain_sorted_bam_dict['13-1950']
+    assert strain_sorted_bam_dict['B13-0234']
 
 
 def test_unmapped_reads_extract():
@@ -271,14 +338,14 @@ def test_skesa_assembled_unmapped():
         strain_name_dict=strain_name_dict,
         threads=threads,
         logfile=logfile)
-    assert os.path.getsize(strain_skesa_output_fasta_dict['13-1950']) == 0
+    assert os.path.getsize(strain_skesa_output_fasta_dict['B13-0234']) == 0
 
 
 def test_number_unmapped_contigs():
     global strain_unmapped_contigs_dict
     strain_unmapped_contigs_dict = VCFMethods.assembly_stats(
         strain_skesa_output_fasta_dict=strain_skesa_output_fasta_dict)
-    assert strain_unmapped_contigs_dict['13-1950'] == 0
+    assert strain_unmapped_contigs_dict['B13-0234'] == 0
 
 
 def test_samtools_index():
@@ -317,6 +384,7 @@ def test_deepvariant_make_examples():
                                              vcf_path=vcf_path,
                                              home=home,
                                              threads=threads,
+                                             deepvariant_version=deepvariant_version,
                                              logfile=logfile)
     assert len(strain_examples_dict['13-1941']) == threads
     for strain_name, gvcf_tfrecord in strain_gvcf_tfrecords_dict.items():
@@ -330,13 +398,15 @@ def test_deepvariant_make_examples():
 def test_deepvariant_call_variants():
     global strain_call_variants_dict
     strain_call_variants_dict = \
-        VCFMethods.deepvariant_call_variants_multiprocessing(strain_variant_path_dict=strain_variant_path_dict,
-                                                             strain_name_dict=strain_name_dict,
-                                                             dependency_path=dependency_path,
-                                                             home=home,
-                                                             vcf_path=vcf_path,
-                                                             threads=threads,
-                                                             logfile=logfile)
+        VCFMethods.deepvariant_call_variants(strain_variant_path_dict=strain_variant_path_dict,
+                                             strain_name_dict=strain_name_dict,
+                                             dependency_path=dependency_path,
+                                             home=home,
+                                             vcf_path=vcf_path,
+                                             threads=threads,
+                                             logfile=logfile,
+                                             variant_caller='deepvariant',
+                                             deepvariant_version=deepvariant_version)
     assert os.path.getsize(strain_call_variants_dict['13-1941']) > 100
     with pytest.raises(KeyError):
         assert strain_call_variants_dict['NC_002695']
@@ -345,27 +415,57 @@ def test_deepvariant_call_variants():
 def test_deepvariant_postprocess_variants():
     global strain_vcf_dict
     strain_vcf_dict = \
-        VCFMethods.deepvariant_postprocess_variants(strain_call_variants_dict=strain_call_variants_dict,
-                                                    strain_variant_path_dict=strain_variant_path_dict,
-                                                    strain_name_dict=strain_name_dict,
-                                                    strain_reference_abs_path_dict=strain_reference_abs_path_dict,
-                                                    strain_gvcf_tfrecords_dict=strain_gvcf_tfrecords_dict,
-                                                    vcf_path=vcf_path,
-                                                    home=home,
-                                                    logfile=logfile)
+        VCFMethods.deepvariant_postprocess_variants_multiprocessing(
+            strain_call_variants_dict=strain_call_variants_dict,
+            strain_variant_path_dict=strain_variant_path_dict,
+            strain_name_dict=strain_name_dict,
+            strain_reference_abs_path_dict=strain_reference_abs_path_dict,
+            strain_gvcf_tfrecords_dict=strain_gvcf_tfrecords_dict,
+            vcf_path=vcf_path,
+            home=home,
+            logfile=logfile,
+            deepvariant_version=deepvariant_version,
+            threads=threads)
     assert os.path.getsize(strain_vcf_dict['13-1941']) > 100
     with pytest.raises(KeyError):
         assert strain_vcf_dict['NC_002695']
 
 
-# def test_filter_vcf():
-#     global strain_vcf_dict
-#     strain_vcf_dict = VCFMethods.filter_vcf(strain_unfiltered_vcf_dict=strain_unfiltered_vcf_dict,
-#                                             strain_name_dict=strain_name_dict,
-#                                             logfile=logfile)
-#     assert os.path.getsize(strain_vcf_dict['13-1941']) > 100
-#     with pytest.raises(KeyError):
-#         assert strain_vcf_dict['NC_002695']
+def test_regions():
+    global strain_ref_regions_dict
+    strain_ref_regions_dict = VCFMethods.reference_regions(
+        strain_reference_abs_path_dict=strain_reference_abs_path_dict,
+        logfile=logfile)
+    for strain_name, ref_regions_file in strain_ref_regions_dict.items():
+        assert os.path.isfile(ref_regions_file)
+        assert os.path.getsize(ref_regions_file) > 0
+
+
+def test_freebayes():
+    """
+    Run FreeBayes on a single strain
+    """
+    global strain_vcf_dict
+    reduced_strain_sorted_bam_dict = dict()
+    reduced_strain_sorted_bam_dict['13-1950'] = strain_sorted_bam_dict['13-1950']
+    strain_vcf_dict = VCFMethods.freebayes(strain_sorted_bam_dict=reduced_strain_sorted_bam_dict,
+                                           strain_name_dict=strain_name_dict,
+                                           strain_reference_abs_path_dict=strain_reference_abs_path_dict,
+                                           strain_ref_regions_dict=strain_ref_regions_dict,
+                                           threads=threads,
+                                           logfile=logfile)
+    for strain_name, vcf_file in strain_vcf_dict.items():
+        assert os.path.getsize(vcf_file) > 10000
+
+
+def test_parse_vcf():
+    global vcf_num_high_quality_snps_dict
+    vcf_strain_vcf_dict = dict()
+    for strain_name, vcf_file in strain_vcf_dict.items():
+        if strain_name == '13-1950':
+            vcf_strain_vcf_dict[strain_name] = vcf_file
+    vcf_num_high_quality_snps_dict = VCFMethods.parse_vcf(strain_vcf_dict=vcf_strain_vcf_dict)
+    assert vcf_num_high_quality_snps_dict['13-1950'] == 480
 
 
 def test_copy_test_vcf_files():
@@ -392,20 +492,37 @@ def test_copy_test_vcf_files():
                 assert os.path.isfile(out_vcf)
 
 
-def test_parse_variants():
-    global strain_num_high_quality_snps_dict
-    strain_num_high_quality_snps_dict = VCFMethods.parse_variants(strain_vcf_dict=strain_vcf_dict)
-    assert strain_num_high_quality_snps_dict['13-1941'] == 457
-    assert strain_num_high_quality_snps_dict['13-1950'] == 484
-    assert strain_num_high_quality_snps_dict['B13-0234'] == 69
-    assert strain_num_high_quality_snps_dict['NC_002695'] == 0
+def test_parse_gvcf():
+    global gvcf_num_high_quality_snps_dict
+    gvcf_strain_vcf_dict = dict()
+    for strain_name, vcf_file in strain_vcf_dict.items():
+        if strain_name != '13-1950':
+            gvcf_strain_vcf_dict[strain_name] = vcf_file
+    gvcf_num_high_quality_snps_dict = VCFMethods.parse_gvcf(strain_vcf_dict=gvcf_strain_vcf_dict)
+    assert gvcf_num_high_quality_snps_dict['13-1941'] == 477
+    assert gvcf_num_high_quality_snps_dict['B13-0234'] == 69
+    assert gvcf_num_high_quality_snps_dict['NC_002695'] == 0
 
 
 def test_copy_vcf_files():
     VCFMethods.copy_vcf_files(strain_vcf_dict=strain_vcf_dict,
                               vcf_path=vcf_path)
     assert os.path.isdir(vcf_path)
-    assert len(glob(os.path.join(vcf_path, '*.gvcf.gz'))) == 3
+    assert len(glob(os.path.join(vcf_path, '*.gvcf.gz'))) == 2
+    assert len(glob(os.path.join(vcf_path, '*.gvcf'))) == 1
+
+
+def test_consolidate_high_quality_snp_dicts():
+    global strain_num_high_quality_snps_dict
+    strain_num_high_quality_snps_dict = dict()
+    for strain_name, num_high_quality_snps in gvcf_num_high_quality_snps_dict.items():
+        strain_num_high_quality_snps_dict[strain_name] = num_high_quality_snps
+    for strain_name, num_high_quality_snps in vcf_num_high_quality_snps_dict.items():
+        strain_num_high_quality_snps_dict[strain_name] = num_high_quality_snps
+    assert strain_num_high_quality_snps_dict['13-1941'] == 477
+    assert strain_num_high_quality_snps_dict['B13-0234'] == 69
+    assert strain_num_high_quality_snps_dict['NC_002695'] == 0
+    assert strain_num_high_quality_snps_dict['13-1950'] == 480
 
 
 def test_spoligo_bait():
@@ -481,12 +598,6 @@ def test_report_create():
     assert os.path.getsize(vcf_report) > 100
 
 
-def test_vcf_run():
-    vcf_object = VCF(path=file_path,
-                     threads=threads)
-    vcf_object.main()
-
-
 def test_remove_bt2_indexes():
     for strain_name, ref_link in reference_link_path_dict.items():
         # Set the absolute path, and strip off the file extension for use in the build call
@@ -496,6 +607,15 @@ def test_remove_bt2_indexes():
             os.remove(bt2_index)
         bt2_files = glob(os.path.join(ref_abs_path, '*.bt2'))
         assert not bt2_files
+
+
+def test_remove_bwa_indexes():
+    for strain_name, ref_link in reference_link_path_dict.items():
+        ref_abs_path = os.path.dirname(os.path.abspath(os.path.join(dependency_path, ref_link)))
+        for ref_file in glob(os.path.join(ref_abs_path, '*')):
+            for extension in ['.bwt', '.pac', '.sa', '.amb', '.ann']:
+                if ref_file.endswith(extension):
+                    os.remove(ref_file)
 
 
 def test_remove_logs():

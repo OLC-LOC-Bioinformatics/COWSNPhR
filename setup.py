@@ -4,7 +4,7 @@ __author__ = 'stuber, adamkoziol'
 
 setup(
     name="vsnpdev",
-    version="0.0.07",
+    version="0.0.08",
     packages=find_packages(),
     include_package_data=True,
     entry_points={
@@ -20,10 +20,4 @@ setup(
                 'outputting BAM, VCF, SNP tables and phylogentic trees.',
     url='https://github.com/USDA-VS/vSNP',
     long_description=open('README.md').read(),
-    install_requires=['olctools',
-                      'biopython',
-                      'pandas',
-                      'pytest',
-                      'xlsxwriter',
-                      'validator_helper']
 )
