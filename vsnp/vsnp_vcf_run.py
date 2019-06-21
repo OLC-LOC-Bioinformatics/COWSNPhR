@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
-from accessoryFunctions.accessoryFunctions import SetupLogging
+from olctools.accessoryFunctions.accessoryFunctions import SetupLogging
 from vsnp.vsnp_vcf_methods import VCFMethods
 from datetime import datetime
 from pathlib import Path
+import subprocess
 import logging
 import os
 
@@ -69,7 +70,8 @@ class VCF(object):
         logging.info('Determining closest reference genome and extracting corresponding species from MASH outputs')
         self.strain_best_ref_dict, self.strain_ref_matches_dict, self.strain_species_dict = \
             VCFMethods.mash_best_ref(mash_dist_dict=mash_dist_dict,
-                                     accession_species_dict=accession_species_dict)
+                                     accession_species_dict=accession_species_dict,
+                                     min_matches=self.matching_hashes)
         logging.debug(
             'Strain-specific MASH-calculated best reference file: \n{files}'.format(
                 files='\n'.join(['{strain_name}: {best_ref}'.format(strain_name=sn, best_ref=br)
@@ -91,16 +93,18 @@ class VCF(object):
         reference_link_path_dict, reference_link_dict \
             = VCFMethods.reference_folder(strain_best_ref_dict=self.strain_best_ref_dict,
                                           dependency_path=self.dependency_path)
-        logging.info('Running bowtie2 build')
-        strain_bowtie2_index_dict, self.strain_reference_abs_path_dict, self.strain_reference_dep_path_dict = \
-            VCFMethods.bowtie2_build(reference_link_path_dict=reference_link_path_dict,
-                                     dependency_path=self.dependency_path,
-                                     logfile=self.logfile)
-        logging.info('Running bowtie2 reference mapping')
-        self.strain_sorted_bam_dict = VCFMethods.bowtie2_map(
+        logging.info('Indexing reference file for {rm} analyses'.format(rm=self.reference_mapper))
+        strain_mapper_index_dict, self.strain_reference_abs_path_dict, self.strain_reference_dep_path_dict = \
+            VCFMethods.index_ref_genome(reference_link_path_dict=reference_link_path_dict,
+                                        dependency_path=self.dependency_path,
+                                        logfile=self.logfile,
+                                        reference_mapper=self.reference_mapper)
+        logging.info('Performing reference mapping using {rm}'.format(rm=self.reference_mapper))
+        self.strain_sorted_bam_dict = VCFMethods.map_ref_genome(
             strain_fastq_dict=self.strain_fastq_dict,
             strain_name_dict=self.strain_name_dict,
-            strain_bowtie2_index_dict=strain_bowtie2_index_dict,
+            strain_mapper_index_dict=strain_mapper_index_dict,
+            reference_mapper=self.reference_mapper,
             threads=self.threads,
             logfile=self.logfile)
         logging.debug('Sorted BAM files: \n{files}'.format(
@@ -167,37 +171,57 @@ class VCF(object):
         """
         Prep files for SNP calling. Use deepvariant to call SNPs. Parse the outputs from deepvariant
         """
-        logging.info('Preparing files for SNP calling with deepvariant make_examples')
-        strain_examples_dict, strain_variant_path_dict, strain_gvcf_tfrecords_dict = \
-            VCFMethods.deepvariant_make_examples(strain_sorted_bam_dict=self.strain_sorted_bam_dict,
-                                                 strain_name_dict=self.strain_name_dict,
-                                                 strain_reference_abs_path_dict=self.strain_reference_abs_path_dict,
-                                                 vcf_path=os.path.join(self.path, 'vcf_files'),
-                                                 home=self.home,
-                                                 threads=self.threads,
-                                                 logfile=self.logfile)
-        logging.info('Calling variants with deepvariant call_variants')
-        strain_call_variants_dict = \
-            VCFMethods.deepvariant_call_variants_multiprocessing(strain_variant_path_dict=strain_variant_path_dict,
-                                                                 strain_name_dict=self.strain_name_dict,
-                                                                 dependency_path=self.dependency_path,
-                                                                 vcf_path=os.path.join(self.path, 'vcf_files'),
-                                                                 home=self.home,
-                                                                 threads=self.threads,
-                                                                 logfile=self.logfile)
-        logging.info('Creating VCF files with deepvariant postprocess_variants')
-        strain_vcf_dict = \
-            VCFMethods.deepvariant_postprocess_variants(
-                strain_call_variants_dict=strain_call_variants_dict,
-                strain_variant_path_dict=strain_variant_path_dict,
-                strain_name_dict=self.strain_name_dict,
-                strain_reference_abs_path_dict=self.strain_reference_abs_path_dict,
-                strain_gvcf_tfrecords_dict=strain_gvcf_tfrecords_dict,
-                vcf_path=os.path.join(self.path, 'vcf_files'),
-                home=self.home,
-                logfile=self.logfile)
-        logging.info('Parsing VCF outputs')
-        self.strain_num_high_quality_snps_dict = VCFMethods.parse_variants(strain_vcf_dict=strain_vcf_dict)
+        if 'deepvariant' in self.variant_caller:
+            logging.info('Preparing files for SNP calling with deepvariant make_examples')
+            strain_examples_dict, strain_variant_path_dict, strain_gvcf_tfrecords_dict = \
+                VCFMethods.deepvariant_make_examples(strain_sorted_bam_dict=self.strain_sorted_bam_dict,
+                                                     strain_name_dict=self.strain_name_dict,
+                                                     strain_reference_abs_path_dict=self.strain_reference_abs_path_dict,
+                                                     vcf_path=os.path.join(self.path, 'vcf_files'),
+                                                     home=self.home,
+                                                     threads=self.threads,
+                                                     logfile=self.logfile,
+                                                     deepvariant_version=self.deepvariant_version)
+            logging.info('Calling variants with deepvariant call_variants')
+            strain_call_variants_dict = \
+                VCFMethods.deepvariant_call_variants(strain_variant_path_dict=strain_variant_path_dict,
+                                                     strain_name_dict=self.strain_name_dict,
+                                                     dependency_path=self.dependency_path,
+                                                     vcf_path=os.path.join(self.path, 'vcf_files'),
+                                                     home=self.home,
+                                                     threads=self.threads,
+                                                     logfile=self.logfile,
+                                                     variant_caller=self.variant_caller,
+                                                     deepvariant_version=self.deepvariant_version)
+            logging.info('Creating VCF files with deepvariant postprocess_variants')
+            strain_vcf_dict = \
+                VCFMethods.deepvariant_postprocess_variants_multiprocessing(
+                    strain_call_variants_dict=strain_call_variants_dict,
+                    strain_variant_path_dict=strain_variant_path_dict,
+                    strain_name_dict=self.strain_name_dict,
+                    strain_reference_abs_path_dict=self.strain_reference_abs_path_dict,
+                    strain_gvcf_tfrecords_dict=strain_gvcf_tfrecords_dict,
+                    vcf_path=os.path.join(self.path, 'vcf_files'),
+                    home=self.home,
+                    logfile=self.logfile,
+                    deepvariant_version=self.deepvariant_version,
+                    threads=self.threads)
+            logging.info('Parsing gVCF files to find high quality SNPs')
+            self.strain_num_high_quality_snps_dict = VCFMethods.parse_gvcf(strain_vcf_dict=strain_vcf_dict)
+        else:
+            logging.info('Creating regions file for freebayes-parallel')
+            strain_ref_regions_dict = \
+                VCFMethods.reference_regions(strain_reference_abs_path_dict=self.strain_reference_abs_path_dict,
+                                             logfile=self.logfile)
+            logging.info('Creating gVCF files with freebayes-parallel')
+            strain_vcf_dict = VCFMethods.freebayes(strain_sorted_bam_dict=self.strain_sorted_bam_dict,
+                                                   strain_name_dict=self.strain_name_dict,
+                                                   strain_reference_abs_path_dict=self.strain_reference_abs_path_dict,
+                                                   strain_ref_regions_dict=strain_ref_regions_dict,
+                                                   threads=self.threads,
+                                                   logfile=self.logfile)
+            logging.info('Parsing gVCF files to find high quality SNPs')
+            self.strain_num_high_quality_snps_dict = VCFMethods.parse_vcf(strain_vcf_dict=strain_vcf_dict)
         VCFMethods.copy_vcf_files(strain_vcf_dict=strain_vcf_dict,
                                   vcf_path=os.path.join(self.path, 'vcf_files'))
         logging.debug('Number high quality SNPs: \n{files}'.format(
@@ -273,11 +297,16 @@ class VCF(object):
             strain_binary_code_dict=self.strain_binary_code_dict,
             report_path=self.report_path)
 
-    def __init__(self, path, threads, debug=False):
+    def __init__(self, path, threads, debug, reference_mapper, variant_caller, matching_hashes):
         """
         :param path: type STR: Path of folder containing FASTQ files
         :param threads: type INT: Number of threads to use in the analyses
         :param debug: type BOOL: Boolean of whether debug level logs are printed to terminal
+        :param reference_mapper: type STR: Name of the reference mapping software to use (choices are bwa and bowtie2)
+        :param variant_caller: type STR: Name of the variant calling software to use (choices are deep variant and
+        freebayes)
+        :param matching_hashes: type INT: Minimum number of matching hashes in MASH analyses in order for a match
+        to be declared successful
         """
         SetupLogging(debug=debug)
         # Determine the path in which the sequence files are located. Allow for ~ expansion
@@ -297,6 +326,29 @@ class VCF(object):
         self.dependency_path = os.path.join(os.path.dirname(self.script_path), 'dependencies')
         assert os.path.isdir(self.dependency_path), 'Something went wrong with the install. Cannot locate the ' \
                                                     'dependencies folder in: {sp}'.format(sp=self.script_path)
+        self.reference_mapper = reference_mapper
+        self.variant_caller = variant_caller
+        # Ensure that if deepvariant or deepvariant-gpu is requested, the image has been installed, and the system
+        # is able to run it properly
+        self.deepvariant_version = '0.8.0'
+        if self.variant_caller == 'deepvariant':
+            cmd = 'docker run --rm gcr.io/deepvariant-docker/deepvariant:{dvv} ' \
+                  '/opt/deepvariant/bin/call_variants -h'.format(dvv=self.deepvariant_version)
+            cmd_sts, return_code = run_cmd(cmd)
+            if not cmd_sts:
+                self.deepvariant_version = '0.7.2'
+                cmd = 'docker run --rm gcr.io/deepvariant-docker/deepvariant:{dvv} ' \
+                      '/opt/deepvariant/bin/call_variants -h'.format(dvv=self.deepvariant_version)
+                cmd_sts, return_code = run_cmd(cmd=cmd)
+                if not cmd_sts:
+                    raise subprocess.CalledProcessError(return_code, cmd=cmd)
+        elif self.variant_caller == 'deepvariant-gpu':
+            cmd = 'nvida-docker run --rm gcr.io/deepvariant-docker/deepvariant:{dvv} ' \
+                  '/opt/deepvariant/bin/call_variants -h'.format(dvv=self.deepvariant_version)
+            cmd_sts, return_code = run_cmd(cmd)
+            if not cmd_sts:
+                raise subprocess.CalledProcessError(return_code, cmd=cmd)
+        self.matching_hashes = matching_hashes
         self.logfile = os.path.join(self.path, 'log')
         self.start_time = datetime.now()
         self.home = str(Path.home())
@@ -323,3 +375,18 @@ class VCF(object):
         self.strain_hexadecimal_code_dict = dict()
         self.strain_sbcode_dict = dict()
         self.strain_mlst_dict = dict()
+
+
+def run_cmd(cmd):
+    """
+    Runs a command using subprocess, and returns both the stdout and stderr from that command
+    If exit code from command is non-zero, raises subprocess.CalledProcessError
+    :param cmd: command to run as a string, as it would be called on the command line
+    :return: out, err: Strings that are the stdout and stderr from the command called.
+    """
+    command_status = True
+    p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    p.communicate()
+    if p.returncode not in [0, 1]:
+        command_status = False
+    return command_status, p.returncode
