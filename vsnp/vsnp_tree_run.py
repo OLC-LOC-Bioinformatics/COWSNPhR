@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from olctools.accessoryFunctions.accessoryFunctions import SetupLogging
+from vsnp.install_dependencies import install_deps
 from vsnp.vsnp_tree_methods import VSNPTreeMethods
 from datetime import datetime
 import logging
@@ -215,7 +216,11 @@ class VSNPTree(object):
         # Extract the path of the folder containing this script
         self.script_path = os.path.abspath(os.path.dirname(__file__))
         # Use the script path to set the absolute path of the dependencies folder
-        self.dependency_path = os.path.join(os.path.dirname(self.script_path), 'dependencies')
+        self.dependency_root = os.path.dirname(self.script_path)
+        self.dependency_path = os.path.join(self.dependency_root, 'dependencies')
+        # If the dependency folder is not present, download it
+        if not os.path.isdir(self.dependency_path):
+            install_deps(dependency_root=self.dependency_root)
         assert os.path.isdir(self.dependency_path), 'Something went wrong with the install. Cannot locate the ' \
                                                     'dependencies folder in: {sp}'.format(sp=self.script_path)
         self.variant_caller = variant_caller

@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 from olctools.accessoryFunctions.accessoryFunctions import SetupLogging
+from vsnp.install_dependencies import install_deps
 from vsnp.vsnp_vcf_methods import VCFMethods
 from datetime import datetime
 from pathlib import Path
-import urllib.request
 import subprocess
 import logging
-import tarfile
 import os
 
 __author__ = 'adamkoziol'
@@ -329,14 +328,7 @@ class VCF(object):
         self.dependency_path = os.path.join(self.dependency_root, 'dependencies')
         # If the dependency folder is not present, download it
         if not os.path.isdir(self.dependency_path):
-            dep_tar = os.path.join(self.dependency_root, '14619260')
-            logging.info('Dependency path not found. Downloading dependencies')
-            urllib.request.urlretrieve('https://ndownloader.figshare.com/files/14619260',
-                                       dep_tar)
-            tar = tarfile.open(dep_tar)
-            tar.extractall(path=self.dependency_root)
-            tar.close()
-            os.remove(dep_tar)
+            install_deps(dependency_root=self.dependency_root)
         assert os.path.isdir(self.dependency_path), 'Something went wrong with the install. Cannot locate the ' \
                                                     'dependencies folder in: {sp}'.format(sp=self.script_path)
         self.reference_mapper = reference_mapper
