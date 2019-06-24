@@ -253,27 +253,52 @@ def test_reference_file_paths():
 
 
 def test_bwa_index():
-    global strain_mapper_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict
-    strain_mapper_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict = \
-        VCFMethods.index_ref_genome(reference_link_path_dict=reference_link_path_dict,
+    global bwa_mapper_index_dict, bwa_reference_abs_path_dict, bwa_reference_dep_path_dict, \
+        bwa_reference_link_path_dict, bowtie2_reference_link_path_dict
+    bwa_reference_link_path_dict = dict()
+    bowtie2_reference_link_path_dict = dict()
+    for strain_name, ref_link in reference_link_path_dict.items():
+        if strain_name in ['13-1941', '13-1950']:
+            bwa_reference_link_path_dict[strain_name] = ref_link
+        else:
+            bowtie2_reference_link_path_dict[strain_name] = ref_link
+    bwa_mapper_index_dict, bwa_reference_abs_path_dict, bwa_reference_dep_path_dict = \
+        VCFMethods.index_ref_genome(reference_link_path_dict=bwa_reference_link_path_dict,
                                     dependency_path=dependency_path,
                                     logfile=logfile,
                                     reference_mapper='bwa')
     assert os.path.isfile(os.path.join(dependency_path, 'mycobacterium', 'tbc', 'af2122', 'script_dependents',
                                        'NC_002945v4.fasta.bwt'))
-    assert os.path.split(strain_mapper_index_dict['13-1950'])[-1] == 'NC_002945v4.fasta'
+    assert os.path.split(bwa_mapper_index_dict['13-1950'])[-1] == 'NC_002945v4.fasta'
 
 
 def test_bowtie2_build():
-    global strain_mapper_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict
-    strain_mapper_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict = \
-        VCFMethods.index_ref_genome(reference_link_path_dict=reference_link_path_dict,
+    global bowtie2_mapper_index_dict, bowtie2_reference_abs_path_dict, bowtie2_reference_dep_path_dict
+    bowtie2_mapper_index_dict, bowtie2_reference_abs_path_dict, bowtie2_reference_dep_path_dict = \
+        VCFMethods.index_ref_genome(reference_link_path_dict=bowtie2_reference_link_path_dict,
                                     dependency_path=dependency_path,
                                     logfile=logfile,
                                     reference_mapper='bowtie2')
-    assert os.path.isfile(os.path.join(dependency_path, 'mycobacterium', 'tbc', 'af2122', 'script_dependents',
-                                       'NC_002945v4.1.bt2'))
-    assert os.path.split(strain_mapper_index_dict['13-1950'])[-1] == 'NC_002945v4'
+    assert os.path.isfile(os.path.join(dependency_path, 'brucella', 'suis1', 'script_dependents',
+                                       'NC_017251-NC_017250.1.bt2'))
+    assert os.path.split(bowtie2_mapper_index_dict['B13-0234'])[-1] == 'NC_017251-NC_017250'
+
+
+def test_consolidate_index_dicts():
+    global strain_mapper_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict
+    strain_mapper_index_dict = dict()
+    strain_reference_abs_path_dict = dict()
+    strain_reference_dep_path_dict = dict()
+    for strain_name, index_file in bwa_mapper_index_dict.items():
+        strain_mapper_index_dict[strain_name] = index_file
+        strain_reference_abs_path_dict[strain_name] = bwa_reference_abs_path_dict[strain_name]
+        strain_reference_dep_path_dict[strain_name] = bwa_reference_dep_path_dict[strain_name]
+    for strain_name, index_file in bowtie2_mapper_index_dict.items():
+        strain_mapper_index_dict[strain_name] = index_file
+        strain_reference_abs_path_dict[strain_name] = bowtie2_reference_abs_path_dict[strain_name]
+        strain_reference_dep_path_dict[strain_name] = bowtie2_reference_dep_path_dict[strain_name]
+    assert os.path.split(strain_mapper_index_dict['13-1950'])[-1] == 'NC_002945v4.fasta'
+    assert os.path.split(strain_mapper_index_dict['B13-0234'])[-1] == 'NC_017251-NC_017250'
 
 
 def test_bwa_mem():

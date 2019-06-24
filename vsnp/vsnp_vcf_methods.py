@@ -421,27 +421,25 @@ class VCFMethods(object):
             # Set the absolute path, and strip off the file extension for use in the build call
             ref_abs_path = os.path.abspath(os.path.join(dependency_path, ref_link))
             base_name = os.path.splitext(ref_abs_path)[0]
-            abs_ref_link = os.path.abspath(os.path.join(dependency_path, ref_link))
             if reference_mapper == 'bowtie2':
-                build_cmd = 'bowtie2-build {ref_file} {base_name}'.format(ref_file=abs_ref_link,
+                build_cmd = 'bowtie2-build {ref_file} {base_name}'.format(ref_file=ref_abs_path,
                                                                           base_name=base_name)
-                extension = '.1.bt2'
+                index_file = base_name + '.1.bt2'
                 strain_mapper_index_dict[strain_name] = base_name
             else:
-                build_cmd = 'bwa index {ref_file}'.format(ref_file=abs_ref_link)
-                extension = '.fasta.bwt'
+                build_cmd = 'bwa index {ref_file}'.format(ref_file=ref_abs_path)
+                index_file = ref_abs_path + '.bwt'
                 strain_mapper_index_dict[strain_name] = ref_abs_path
             # Only run the system call if the index files haven't already been created
-            if not os.path.isfile('{base_name}{ext}'.format(base_name=base_name,
-                                                            ext=extension)):
+            if not os.path.isfile(index_file):
                 out, err = run_subprocess(build_cmd)
                 # Write the stdout and stderr to the log files
                 write_to_logfile(out=out,
                                  err=err,
                                  logfile=logfile)
             # Populate the dictionaries
-            strain_reference_abs_path_dict[strain_name] = abs_ref_link
-            strain_reference_dep_path_dict[strain_name] = os.path.dirname(abs_ref_link)
+            strain_reference_abs_path_dict[strain_name] = ref_abs_path
+            strain_reference_dep_path_dict[strain_name] = os.path.dirname(ref_abs_path)
         return strain_mapper_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict
 
     @staticmethod
