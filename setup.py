@@ -5,7 +5,7 @@ __author__ = 'stuber, adamkoziol'
 
 setup(
     name="vsnpdev",
-    version="0.0.17",
+    version="0.0.18",
     packages=find_packages(),
     include_package_data=True,
     scripts=[os.path.join('vsnp', 'vSNP.py')],

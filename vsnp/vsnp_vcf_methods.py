@@ -314,8 +314,9 @@ class VCFMethods(object):
             out_tab = os.path.join(strain_folder, '{sn}_mash.tab'.format(sn=strain_name))
             # Create the system call: -p is the number of threads requested, -m sets the minimum copies of each k-mer
             # required to pass noise filter for reads to 2 (ignores single copy kmers). MASH outputs are piped to
-            # the sort function, which sorts the data as follows: g: general numeric sort, K: keydef
-            mash_dist_command = 'mash dist -m 2 {ref_sketch_file} {fastq_sketch} | sort -gk3 > {out}' \
+            # the sort function, which sorts the data as follows: g: general numeric sort, K: keydef, 2: second column
+            # (distance value)
+            mash_dist_command = 'mash dist -m 2 {ref_sketch_file} {fastq_sketch} | sort -gk2 > {out}' \
                 .format(ref_sketch_file=ref_sketch_file,
                         fastq_sketch=fastq_sketch_file,
                         out=out_tab)
