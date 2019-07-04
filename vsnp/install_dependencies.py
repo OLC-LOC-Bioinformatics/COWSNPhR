@@ -12,9 +12,9 @@ def install_deps(dependency_root):
     :param dependency_root: type STR: Absolute path to the folder in which the dependencies are to be installed
     :return:
     """
-    dep_tar = os.path.join(dependency_root, '14619260')
+    dep_tar = os.path.join(dependency_root, '15981347')
     logging.info('Dependency path not found. Downloading dependencies')
-    urllib.request.urlretrieve('https://ndownloader.figshare.com/files/14619260',
+    urllib.request.urlretrieve('https://ndownloader.figshare.com/files/15981347',
                                dep_tar)
     tar = tarfile.open(dep_tar)
     tar.extractall(path=dependency_root)
