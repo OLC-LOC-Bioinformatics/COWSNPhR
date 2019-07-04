@@ -91,9 +91,9 @@ def cli():
                                     'deepvariant-gpu and freebayes. Default is freebayes')
     vcf_subparser.add_argument('-m', '--matchinghashes',
                                type=int,
-                               default=500,
+                               default=250,
                                help='Minimum number of matching hashes returned from MASH in order for a query Brucella'
-                                    ' strain to be successfully matched to a reference strain. Default is 500')
+                                    ' strain to be successfully matched to a reference strain. Default is 250')
     vcf_subparser.set_defaults(func=vcf)
     # Create a subparser to run the phylogenetic tree creation component of the script
     tree_subparser = subparsers.add_parser(parents=[parent_parser],
@@ -127,12 +127,12 @@ def cli():
                                      'deepvariant-gpu and freebayes. Default is freebayes')
     vsnp_subparser.add_argument('-m', '--matchinghashes',
                                 type=int,
-                                default=500,
+                                default=250,
                                 help='Minimum number of matching hashes returned from MASH in order for a query B'
-                                     'rucella strain to be successfully matched to a reference strain. Default is 500')
+                                     'rucella strain to be successfully matched to a reference strain. Default is 250')
     vsnp_subparser.add_argument('-f', '--filterpositions',
-                                action='store_true',
-                                help='Use the Filtered_Regions.xlsx file to filter SNPs')
+                                action='store_false',
+                                help='Do not use the Filtered_Regions.xlsx file to filter SNPs')
     vsnp_subparser.set_defaults(func=vsnp)
     # Get the arguments into an object
     arguments = parser.parse_args()

@@ -268,8 +268,11 @@ class VCFMethods(object):
         for strain_name, fastq_files in strain_fastq_dict.items():
             # Extract the strain-specific working directory
             strain_folder = strain_name_dict[strain_name]
+            # Set the absolute path, and create the the mash folder
+            mash_folder = os.path.join(strain_folder, 'mash')
+            make_path(mash_folder)
             # Set the absolute paths of the sketch file with and without the .msh extension (used for calling MASH)
-            fastq_sketch_no_ext = os.path.join(strain_folder, '{sn}_sketch'.format(sn=strain_name))
+            fastq_sketch_no_ext = os.path.join(mash_folder, '{sn}_sketch'.format(sn=strain_name))
             fastq_sketch = fastq_sketch_no_ext + '.msh'
             # Create the system call - cat together the FASTQ files, and pipe them into MASH
             # -p requests the number of desired threads, -m sets the minimum copies of each k-mer required to pass
@@ -311,12 +314,12 @@ class VCFMethods(object):
             # Extract the absolute path of the strain-specific sketch file
             fastq_sketch_file = fastq_sketch_dict[strain_name]
             # Set the absolute path of the MASH dist output table
-            out_tab = os.path.join(strain_folder, '{sn}_mash.tab'.format(sn=strain_name))
+            out_tab = os.path.join(strain_folder, 'mash', '{sn}_mash.tab'.format(sn=strain_name))
             # Create the system call: -p is the number of threads requested, -m sets the minimum copies of each k-mer
             # required to pass noise filter for reads to 2 (ignores single copy kmers). MASH outputs are piped to
             # the sort function, which sorts the data as follows: g: general numeric sort, K: keydef, 5: second column
             # (num matching hashes), r: reversed
-            mash_dist_command = 'mash dist -m 2 {ref_sketch_file} {fastq_sketch} | sort -gk5 -r > {out}' \
+            mash_dist_command = 'mash dist -m 2 {ref_sketch_file} {fastq_sketch} > {out}' \
                 .format(ref_sketch_file=ref_sketch_file,
                         fastq_sketch=fastq_sketch_file,
                         out=out_tab)
@@ -366,16 +369,22 @@ class VCFMethods(object):
         strain_ref_matches_dict = dict()
         strain_species_dict = dict()
         for strain_name, mash_dist_table in mash_dist_dict.items():
+            # Create a variable to determine the best reference match
+            best_matching_hashes = 0
             with open(mash_dist_table, 'r') as mash_dist:
                 # Extract all the data included on each line of the table outputs
-                best_ref, query_id, mash_distance, p_value, matching_hashes = mash_dist.readline().rstrip().split('\t')
-            # Split the total of matching hashes from the total number of hashes
-            matching_hashes = int(matching_hashes.split('/')[0])
-            # Populate the dictionaries appropriately
-            if matching_hashes >= min_matches:
-                strain_best_ref_dict[strain_name] = best_ref
-                strain_ref_matches_dict[strain_name] = matching_hashes
-                strain_species_dict[strain_name] = accession_species_dict[best_ref]
+                for line in mash_dist:
+                    # Split the line on tabs
+                    best_ref, query_id, mash_distance, p_value, matching_hashes = line.rstrip().split('\t')
+                    # Split the total of matching hashes from the total number of hashes
+                    matching_hashes = int(matching_hashes.split('/')[0])
+                    # Populate the dictionaries appropriately
+                    if matching_hashes >= min_matches and matching_hashes > best_matching_hashes:
+                        strain_best_ref_dict[strain_name] = best_ref
+                        strain_ref_matches_dict[strain_name] = matching_hashes
+                        strain_species_dict[strain_name] = accession_species_dict[best_ref]
+                        # Update the best number of matching hashes with the current value
+                        best_matching_hashes = matching_hashes
         return strain_best_ref_dict, strain_ref_matches_dict, strain_species_dict
 
     @staticmethod

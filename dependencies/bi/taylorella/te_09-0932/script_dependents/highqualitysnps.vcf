@@ -1,8 +1,0 @@
-##fileformat=VCFv4.1
-#CHROM	POS	ID	REF	ALT	QUAL	FILTER	INFO	FORMAT	SAMPLE1	rsIDs
-NZ_CP021201.1	40532	.	G	.	.	.	.	.	.	.
-NZ_CP021201.1	648605	.	T	.	.	.	.	.	.	.
-NZ_CP021201.1	1460398	.	A	.	.	.	.	.	.	.
-NZ_CP021201.1	1460458	.	G	.	.	.	.	.	.	.
-NZ_CP021201.1	1461399	.	C	.	.	.	.	.	.	.
-NZ_CP021201.1	1569589	.	T	.	.	.	.	.	.	.
