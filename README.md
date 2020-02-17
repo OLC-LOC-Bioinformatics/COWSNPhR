@@ -1,4 +1,4 @@
 LINK TO PROJECT:
 ================
 
-https://usda-vs.github.io/vSNP/
+https://github.com/USDA-VS/vSNP

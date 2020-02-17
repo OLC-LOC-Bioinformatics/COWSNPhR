@@ -6,7 +6,7 @@ import multiprocessing
 import os
 
 __author__ = 'adamkoziol'
-__version__ = '0.0.11'
+__version__ = '0.0.21'
 
 
 def vsnp(args):
