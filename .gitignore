@@ -8,8 +8,5 @@ dist/
 *.egg-info
 *holding*
 dependencies.tar.gz
-cowsnphr/
-dependencies/brucella/suis1/script_dependents/NC_017251-NC_017250.fasta.regions
-dependencies/mycobacterium/tbc/af2122/script_dependents/NC_002945v4.fasta.regions
 dependencies/deepvariant_model/
 legacy_comparison/
