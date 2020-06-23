@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from accessoryFunctions.accessoryFunctions import run_subprocess, SetupLogging, write_to_logfile
+from olctools.accessoryFunctions.accessoryFunctions import run_subprocess, SetupLogging, write_to_logfile
 from vsnp.vsnp_vcf_methods import VCFMethods
 from vsnp.vsnp_tree_methods import VSNPTreeMethods
 from Bio import SeqIO
@@ -33,16 +33,18 @@ class COWSNPhR(object):
         """
         logging.info('Locating FASTQ files, creating strain-specific working directories and symlinks to files')
         fastq_files = VCFMethods.file_list(path=self.seq_path)
-        logging.debug('FASTQ files: \n{fastq_files}'.format(fastq_files='\n'.join(fastq_files)))
+        logging.info('FASTQ files: \n{fastq_files}'.format(fastq_files='\n'.join(fastq_files)))
         strain_folder_dict = VCFMethods.strain_list(fastq_files=fastq_files)
         self.strain_name_dict = VCFMethods.strain_namer(strain_folders=strain_folder_dict)
-        logging.debug('Strain names: \n{strain_names}'.format(strain_names='\n'.join(sorted(self.strain_name_dict))))
+        if self.debug:
+            logging.info('Strain names: \n{strain_names}'.format(strain_names='\n'.join(sorted(self.strain_name_dict))))
         self.strain_fastq_dict = VCFMethods.file_link(strain_folder_dict=strain_folder_dict,
                                                       strain_name_dict=self.strain_name_dict)
-        logging.debug(
-            'Strain-specific symlinked FASTQ files: \n{symlinks}'.format(
-                symlinks='\n'.join(['{strain_name}: {fastq_files}'.format(strain_name=sn, fastq_files=ff)
-                                    for sn, ff in self.strain_fastq_dict.items()])))
+        if self.debug:
+            logging.info(
+                'Strain-specific symlinked FASTQ files: \n{symlinks}'.format(
+                    symlinks='\n'.join(['{strain_name}: {fastq_files}'.format(strain_name=sn, fastq_files=ff)
+                                        for sn, ff in self.strain_fastq_dict.items()])))
 
     def reference_mapping(self):
         """
@@ -52,19 +54,24 @@ class COWSNPhR(object):
         self.ref_file()
         logging.info('Running bowtie2 build')
         strain_bowtie2_index_dict, self.strain_reference_abs_path_dict, self.strain_reference_dep_path_dict = \
-            VCFMethods.bowtie2_build(reference_link_path_dict=self.reference_link_path_dict,
-                                     dependency_path=self.ref_path,
-                                     logfile=self.logfile)
+            VCFMethods.index_ref_genome(reference_link_path_dict=self.reference_link_path_dict,
+                                        dependency_path=self.ref_path,
+                                        logfile=self.logfile,
+                                        reference_mapper='bowtie2')
+        logging.info('Creating .fai index file of {ref}'.format(ref=self.ref_strain))
+        VCFMethods.faidx_ref_genome(ref_fasta=self.ref_fasta,
+                                    logfile=self.logfile)
         logging.info('Running bowtie2 reference mapping')
-        self.strain_sorted_bam_dict = VCFMethods.bowtie2_map(
+        self.strain_sorted_bam_dict = VCFMethods.map_ref_genome(
             strain_fastq_dict=self.strain_fastq_dict,
             strain_name_dict=self.strain_name_dict,
-            strain_bowtie2_index_dict=strain_bowtie2_index_dict,
+            strain_mapper_index_dict=strain_bowtie2_index_dict,
             threads=self.threads,
-            logfile=self.logfile)
+            logfile=self.logfile,
+            reference_mapper='bowtie2')
         logging.debug('Sorted BAM files: \n{files}'.format(
-                files='\n'.join(['{strain_name}: {bam_file}'.format(strain_name=sn, bam_file=bf)
-                                 for sn, bf in self.strain_sorted_bam_dict.items()])))
+            files='\n'.join(['{strain_name}: {bam_file}'.format(strain_name=sn, bam_file=bf)
+                             for sn, bf in self.strain_sorted_bam_dict.items()])))
         logging.info('Indexing sorted BAM files')
         VCFMethods.samtools_index(strain_sorted_bam_dict=self.strain_sorted_bam_dict,
                                   strain_name_dict=self.strain_name_dict,
@@ -76,10 +83,11 @@ class COWSNPhR(object):
         reference_link_path_dict: Dictionary of strain name: relative path to symlinked reference genome
         :return:
         """
+        self.ref_fasta = glob(os.path.join(self.ref_path, '*.fasta'))[0]
+        self.ref_strain = os.path.basename(os.path.splitext(self.ref_fasta)[0])
         for strain_name in self.strain_name_dict:
-            fasta = glob(os.path.join(self.ref_path, '*.fasta'))[0]
-            self.reference_link_path_dict[strain_name] = fasta
-            self.strain_consolidated_ref_dict[strain_name] = os.path.basename(os.path.splitext(fasta)[0])
+            self.reference_link_path_dict[strain_name] = self.ref_fasta
+            self.strain_consolidated_ref_dict[strain_name] = self.ref_strain
 
     def snp_calling(self):
         """
@@ -94,20 +102,22 @@ class COWSNPhR(object):
                                                  home=self.home,
                                                  logfile=self.logfile,
                                                  threads=self.threads,
-                                                 working_path=self.working_path)
+                                                 working_path=self.working_path,
+                                                 deepvariant_version=self.deepvariant_version)
         logging.info('Calling variants with deepvariant call_variants')
         strain_call_variants_dict = \
-            VCFMethods.deepvariant_call_variants_multiprocessing(strain_variant_path_dict=strain_variant_path_dict,
-                                                                 strain_name_dict=self.strain_name_dict,
-                                                                 dependency_path=self.dependency_path,
-                                                                 vcf_path=os.path.join(self.seq_path, 'vcf_files'),
-                                                                 home=self.home,
-                                                                 threads=self.threads,
-                                                                 logfile=self.logfile,
-                                                                 working_path=self.working_path)
+            VCFMethods.deepvariant_call_variants(strain_variant_path_dict=strain_variant_path_dict,
+                                                 strain_name_dict=self.strain_name_dict,
+                                                 vcf_path=os.path.join(self.seq_path, 'vcf_files'),
+                                                 home=self.home,
+                                                 threads=self.threads,
+                                                 logfile=self.logfile,
+                                                 working_path=self.working_path,
+                                                 deepvariant_version=self.deepvariant_version,
+                                                 variant_caller='deepvariant')
         logging.info('Creating VCF files with deepvariant postprocess_variants')
         self.strain_vcf_dict = \
-            VCFMethods.deepvariant_postprocess_variants(
+            VCFMethods.deepvariant_postprocess_variants_multiprocessing(
                 strain_call_variants_dict=strain_call_variants_dict,
                 strain_variant_path_dict=strain_variant_path_dict,
                 strain_name_dict=self.strain_name_dict,
@@ -116,7 +126,8 @@ class COWSNPhR(object):
                 vcf_path=os.path.join(self.seq_path, 'vcf_files'),
                 home=self.home,
                 logfile=self.logfile,
-                working_path=self.working_path)
+                deepvariant_version=self.deepvariant_version,
+                threads=self.threads)
         logging.info('Copying gVCF files to common folder')
         VCFMethods.copy_vcf_files(strain_vcf_dict=self.strain_vcf_dict,
                                   vcf_path=os.path.join(self.seq_path, 'vcf_files'))
@@ -124,29 +135,28 @@ class COWSNPhR(object):
     def load_snps(self):
         logging.info('Parsing gVCF files')
         self.strain_parsed_vcf_dict, self.strain_best_ref_dict, self.strain_best_ref_set_dict = \
-            VSNPTreeMethods.load_vcf(strain_vcf_dict=self.strain_vcf_dict,
-                                     threads=self.threads)
-        logging.debug('Parsed gVCF summaries:')
+            VSNPTreeMethods.load_vcf(strain_vcf_dict=self.strain_vcf_dict)
         if self.debug:
+            logging.info('Parsed gVCF summaries:')
             pass_dict, insertion_dict, deletion_dict = \
-                VSNPTreeMethods.summarise_vcf_outputs(strain_parsed_vcf_dict=self.strain_parsed_vcf_dict)
+                VSNPTreeMethods.summarise_gvcf_outputs(strain_parsed_vcf_dict=self.strain_parsed_vcf_dict)
 
-            logging.debug('SNP bases: \n{results}'.format(
+            logging.info('SNP bases: \n{results}'.format(
                 results='\n'.join(['{strain_name}: {pass_filter}'.format(strain_name=sn, pass_filter=ps)
                                    for sn, ps in pass_dict.items()])))
-            logging.debug('Inserted bases: \n{results}'.format(
+            logging.info('Inserted bases: \n{results}'.format(
                 results='\n'.join(['{strain_name}: {insertion_calls}'.format(strain_name=sn, insertion_calls=ic)
                                    for sn, ic in insertion_dict.items()])))
-            logging.debug('Deleted bases: \n{results}'.format(
+            logging.info('Deleted bases: \n{results}'.format(
                 results='\n'.join(['{strain_name}: {deletion_calls}'.format(strain_name=sn, deletion_calls=dc)
                                    for sn, dc in deletion_dict.items()])))
         logging.info('Loading SNP positions')
         consolidated_ref_snp_positions, strain_snp_positions, self.ref_snp_positions = \
-            VSNPTreeMethods.load_snp_positions(strain_parsed_vcf_dict=self.strain_parsed_vcf_dict,
-                                               strain_consolidated_ref_dict=self.strain_consolidated_ref_dict)
+            VSNPTreeMethods.load_gvcf_snp_positions(strain_parsed_vcf_dict=self.strain_parsed_vcf_dict,
+                                                    strain_consolidated_ref_dict=self.strain_consolidated_ref_dict)
         group_positions_set = self.group_strains(strain_snp_positions=strain_snp_positions)
-        logging.debug('Number of SNPs per contig:')
         if self.debug:
+            logging.info('Number of SNPs per contig:')
             for species_code, group_dict in group_positions_set.items():
                 for group, ref_dict in group_dict.items():
                     for ref_chrom, pos_set in ref_dict.items():
@@ -156,12 +166,12 @@ class COWSNPhR(object):
         filtered_group_positions = VSNPTreeMethods.filter_snps(group_positions_set=group_positions_set,
                                                                threshold=3)
         if self.debug:
-            logging.debug('Number of SNPs per contig following density filtering:')
+            logging.info('Number of SNPs per contig following density filtering:')
             for species_code, group_dict in filtered_group_positions.items():
                 for group, ref_dict in group_dict.items():
                     for ref_chrom, pos_set in ref_dict.items():
                         if pos_set:
-                            print(ref_chrom, len(pos_set))
+                            print(ref_chrom, len(pos_set), sorted(list(pos_set)))
         logging.info('Loading SNP sequences')
         self.group_strain_snp_sequence, self.species_group_best_ref = \
             VSNPTreeMethods.load_snp_sequence(strain_parsed_vcf_dict=self.strain_parsed_vcf_dict,
@@ -176,8 +186,8 @@ class COWSNPhR(object):
                                               fasta_path=self.fasta_path,
                                               group_positions_set=filtered_group_positions,
                                               nested=False)
-        logging.debug('Multi-FASTA alignment output:')
         if self.debug:
+            logging.info('Multi-FASTA alignment output:')
             for species_code, group_dict in self.group_fasta_dict.items():
                 for group, fasta_file in group_dict.items():
                     print(fasta_file)
@@ -257,7 +267,7 @@ class COWSNPhR(object):
                                                          group=group))
                         species_group_trees[species][group]['best_tree'] = best_tree
                         # Create a system call to FastTree
-                        fasttree_cmd = 'FastTree -gamma  -nt {fasta_file} > {tree_file}'\
+                        fasttree_cmd = 'FastTree -gamma  -nt {fasta_file} > {tree_file}' \
                             .format(fasta_file=fasta_file,
                                     tree_file=best_tree)
                         # Run the system call if the output best tree doesn't already exist
@@ -273,6 +283,10 @@ class COWSNPhR(object):
         """
         Load GenBank files, and annotate SNPs
         """
+        logging.info('Creating GenBank file for {ref} as required'.format(ref=self.ref_strain))
+        self.prokka(ref_path=self.ref_path,
+                    ref_strain=self.ref_strain,
+                    ref_fasta=self.ref_fasta)
         logging.info('Loading GenBank files for closest reference genomes')
         self.load_genbank_file(reference_link_path_dict=self.reference_link_path_dict)
         logging.info('Annotating SNPs')
@@ -281,6 +295,25 @@ class COWSNPhR(object):
                                           full_best_ref_gbk_dict=self.full_best_ref_gbk_dict,
                                           strain_best_ref_set_dict=self.strain_best_ref_set_dict,
                                           ref_snp_positions=self.ref_snp_positions)
+
+    def prokka(self, ref_path, ref_strain, ref_fasta):
+        """
+        Run prokka to annotate the reference genome
+        :param ref_path: type STR: Absolute path to folder containing reference file
+        :param ref_strain: type STR: Name of reference strain
+        :param ref_fasta: type STR: Absolute path to reference FASTA file
+        """
+        # Prepare command
+        cmd = 'prokka --force --outdir {output_folder} --prefix {prefix} {ref_file}' \
+            .format(output_folder=ref_path,
+                    prefix=ref_strain,
+                    ref_file=ref_fasta)
+        if not os.path.isfile(ref_fasta.replace('.fasta', '.gbk')):
+            out, err = run_subprocess(command=cmd)
+            write_to_logfile(out='{cmd}\n{out}'.format(cmd=cmd,
+                                                       out=out),
+                             err=err,
+                             logfile=self.logfile)
 
     def load_genbank_file(self, reference_link_path_dict):
         """
@@ -323,15 +356,19 @@ class COWSNPhR(object):
         species_group_snp_num_dict = \
             VSNPTreeMethods.determine_snp_number(group_strain_snp_sequence=self.group_strain_snp_sequence,
                                                  species_group_best_ref=self.species_group_best_ref)
-        logging.debug('SNP prevalence')
         if self.debug:
+            logging.info('SNP prevalence')
             for ref_chrom, pos_dict in species_group_snp_num_dict['species']['group'].items():
                 print(ref_chrom, pos_dict)
+        logging.info('Creating SNP matrix')
+        VSNPTreeMethods.create_snp_matrix(species_group_best_ref=self.species_group_best_ref,
+                                          group_strain_snp_sequence=self.group_strain_snp_sequence,
+                                          matrix_path=self.matrix_path)
         logging.info('Ranking SNPs based on prevalence')
         species_group_snp_rank, self.species_group_num_snps = \
             VSNPTreeMethods.rank_snps(species_group_snp_num_dict=species_group_snp_num_dict)
-        logging.debug('Ranked SNPs')
         if self.debug:
+            logging.info('Ranked SNPs')
             for num_snps, ref_dict in sorted(species_group_snp_rank['species']['group'].items(), reverse=True):
                 for ref_chrom, pos_dict in ref_dict.items():
                     print(num_snps, ref_chrom, pos_dict)
@@ -341,8 +378,8 @@ class COWSNPhR(object):
                                       species_group_snp_rank=species_group_snp_rank,
                                       species_group_best_ref=self.species_group_best_ref,
                                       group_strain_snp_sequence=self.group_strain_snp_sequence)
-        logging.debug('Sorted SNPs')
         if self.debug:
+            logging.info('Sorted SNPs')
             for num_snps, ref_dict in self.species_group_sorted_snps['species']['group'].items():
                 for ref_chrom, pos_dict in ref_dict.items():
                     print(num_snps, ref_chrom, pos_dict)
@@ -370,7 +407,7 @@ class COWSNPhR(object):
         SetupLogging(self.debug)
         # Ensure that the path exists
         assert os.path.isdir(self.seq_path), 'Invalid path specified: {path}'.format(path=self.seq_path)
-        logging.debug('Supplied sequence path: \n{path}'.format(path=self.seq_path))
+        logging.info('Supplied sequence path: \n{path}'.format(path=self.seq_path))
         # Initialise class variables
         self.threads = threads
         self.report_path = os.path.join(self.seq_path, 'reports')
@@ -380,7 +417,7 @@ class COWSNPhR(object):
             self.ref_path = os.path.abspath(os.path.join(ref_path))
         # Ensure that the path exists
         assert os.path.isdir(self.ref_path), 'Invalid path specified: {path}'.format(path=self.ref_path)
-        logging.debug('Supplied reference path: \n{path}'.format(path=self.ref_path))
+        logging.info('Supplied reference path: \n{path}'.format(path=self.ref_path))
         # Determine if an additional volume
         if working_path:
             self.working_path = os.path.abspath(os.path.join(working_path))
@@ -391,7 +428,10 @@ class COWSNPhR(object):
         self.fasta_path = os.path.join(self.seq_path, 'alignments')
         self.tree_path = os.path.join(self.seq_path, 'tree_files')
         self.summary_path = os.path.join(self.seq_path, 'summary_tables')
+        self.matrix_path = os.path.join(self.seq_path, 'snp_matrix')
         self.logfile = os.path.join(self.seq_path, 'log')
+        self.ref_fasta = str()
+        self.ref_strain = str()
         self.strain_name_dict = dict()
         self.strain_fastq_dict = dict()
         self.strain_consolidated_ref_dict = dict()
@@ -414,6 +454,7 @@ class COWSNPhR(object):
         self.full_best_ref_gbk_dict = dict()
         self.species_group_num_snps = dict()
         self.species_group_sorted_snps = dict()
+        self.deepvariant_version = '0.10.0'
 
 
 def get_version():

@@ -453,6 +453,21 @@ class VCFMethods(object):
         return strain_mapper_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict
 
     @staticmethod
+    def faidx_ref_genome(ref_fasta, logfile):
+        """
+        Run samtools faidx on the reference file
+        :param ref_fasta:
+        :param logfile
+        """
+        faidx_command = 'samtools faidx {ref}'.format(ref=ref_fasta)
+        if not os.path.isfile(ref_fasta + '.fai'):
+            out, err = run_subprocess(command=faidx_command)
+            write_to_logfile(out='{cmd}\n{out}'.format(cmd=faidx_command,
+                                                       out=out),
+                             err=err,
+                             logfile=logfile)
+
+    @staticmethod
     def map_ref_genome(strain_fastq_dict, strain_name_dict, strain_mapper_index_dict, threads, logfile,
                        reference_mapper):
         """
@@ -783,7 +798,7 @@ class VCFMethods(object):
             make_example_cmd = 'seq 0 {threads_minus_1} | ' \
                                'parallel --halt 2 --joblog {logfile} --res {deepvariant_dir} ' \
                                'docker run --rm -v {volumes} ' \
-                               'gcr.io/deepvariant-docker/deepvariant:{dvv} ' \
+                               'google/deepvariant:{dvv} ' \
                                '/opt/deepvariant/bin/make_examples --mode calling --ref {ref} --reads {bam} ' \
                                '--examples {output_example}@{threads}.gz --gvcf {gvcf_tfrecords}@{threads}.gz ' \
                                '--task {{}}' \
@@ -820,13 +835,12 @@ class VCFMethods(object):
         return strain_examples_dict, strain_variant_path, strain_gvcf_tfrecords_dict
 
     @staticmethod
-    def deepvariant_call_variants(strain_variant_path_dict, strain_name_dict, dependency_path, vcf_path,
+    def deepvariant_call_variants(strain_variant_path_dict, strain_name_dict, vcf_path,
                                   home, threads, logfile, variant_caller, deepvariant_version, working_path=None):
         """
         Perform variant calling. Process deepvariant examples files with call_variant
         :param strain_variant_path_dict: type DICT: Dictionary of strain name: absolute path to deepvariant output dir
         :param strain_name_dict: type DICT: Dictionary of strain name: absolute path to strain-specific working dir
-        :param dependency_path: type STR: Absolute path to dependencies folder
         :param vcf_path: type STR: Absolute path to folder in which all symlinks to .vcf files are to be created
         :param home: type STR: Absolute path to $HOME
         :param threads: type INT: Number of threads used in the analyses
@@ -855,17 +869,14 @@ class VCFMethods(object):
                 else '{home}:{home} -v {working_path}:{working_path}'.format(home=home,
                                                                              working_path=working_path)
             # Set the absolute path to the deepvariant model to be used by call_variants
-            if deepvariant_version == '0.8.0':
-                model = '/opt/models/wgs/model.ckpt'
-            else:
-                model = os.path.join(dependency_path, 'deepvariant_model', 'model.ckpt')
+            model = '/opt/models/wgs/model.ckpt'
             # Set the system call.
             if variant_caller == 'deepvariant-gpu':
                 #  Use nvidia-docker to run call_variants with GPU support.
                 call_variants_cmd = 'nvidia-docker run --rm -v {volumes} ' \
-                                    'gcr.io/deepvariant-docker/deepvariant_gpu:{dvv} ' \
+                                    'google/deepvariant-gpu:{dvv} ' \
                                     '/opt/deepvariant/bin/call_variants --outfile {output_file} ' \
-                                    '--examples {output_example}@{threads}.gz --checkpoint {model}'\
+                                    '--examples {output_example}@{threads}.gz --checkpoint {model} ' \
                     .format(volumes=volumes,
                             dvv=deepvariant_version,
                             output_file=call_variants_output,
@@ -874,7 +885,7 @@ class VCFMethods(object):
                             model=model)
             else:
                 # Use docker to run call_variants.
-                call_variants_cmd = 'docker run --rm -v {volumes} gcr.io/deepvariant-docker/deepvariant:{dvv} ' \
+                call_variants_cmd = 'docker run --rm -v {volumes} google/deepvariant:{dvv} ' \
                                     '/opt/deepvariant/bin/call_variants --outfile {output_file} ' \
                                     '--examples {output_example}@{threads}.gz --checkpoint {model}' \
                     .format(volumes=volumes,
@@ -973,7 +984,7 @@ class VCFMethods(object):
             else '{home}:{home} -v {working_path}:{working_path}'.format(home=home,
                                                                          working_path=working_path)
         # Set the system call. Use docker to run postprocess_variants
-        postprocess_variants_cmd = 'docker run --rm -v {volumes} gcr.io/deepvariant-docker/deepvariant:{dvv}' \
+        postprocess_variants_cmd = 'docker run --rm -v {volumes} google/deepvariant:{dvv}' \
                                    ' /opt/deepvariant/bin/postprocess_variants --ref {ref} ' \
                                    '--nonvariant_site_tfrecord_path {gvcf_records} ' \
                                    '--infile {call_variants_output} --outfile {vcf_file} ' \
@@ -1073,7 +1084,8 @@ class VCFMethods(object):
             if not os.path.isfile(regions_file):
                 out, err = run_subprocess(regions_cmd)
                 # Write STDOUT and STDERR to the logfile
-                write_to_logfile(out=out,
+                write_to_logfile(out='{cmd}\n{out}'.format(cmd=regions_cmd,
+                                                           out=out),
                                  err=err,
                                  logfile=logfile)
             # Populate the dictionary with the path to the regions file

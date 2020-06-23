@@ -187,7 +187,6 @@ class VCF(object):
             strain_call_variants_dict = \
                 VCFMethods.deepvariant_call_variants(strain_variant_path_dict=strain_variant_path_dict,
                                                      strain_name_dict=self.strain_name_dict,
-                                                     dependency_path=self.dependency_path,
                                                      vcf_path=os.path.join(self.path, 'vcf_files'),
                                                      home=self.home,
                                                      threads=self.threads,

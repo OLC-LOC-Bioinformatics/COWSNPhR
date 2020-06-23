@@ -13,7 +13,6 @@ import pandas
 import gzip
 import xlrd
 import os
-import re
 
 __author__ = 'adamkoziol'
 
@@ -227,7 +226,7 @@ class VSNPTreeMethods(object):
                             }
                         # If the position in the 'info' field does not match pos, and the minimum depth of a gVCF
                         # block is 0, this is considered a deletion
-                        elif int(info) != pos and format_dict['MIN_DP'] == '0':
+                        elif int(info) != pos and format_dict['MIN_DP'] == 0:
                             # Subtract the starting position (pos) from the final position (info)
                             length = int(info) - pos
                             # Iterate through the range of the deletion, and populate the dictionary for each
@@ -260,40 +259,48 @@ class VSNPTreeMethods(object):
         strain_best_ref_set_dict = dict()
         for strain_name, vcf_file in strain_vcf_dict.items():
             strain_parsed_vcf_dict[strain_name] = dict()
-            with open(vcf_file, 'r') as filtered:
-                for line in filtered:
-                    # Add the VCF file header information to the filtered file
-                    if line.startswith('#'):
-                        pass
+            if vcf_file.endswith('.gz'):
+                # Use gzip to open the compressed gVCF file
+                filtered = gzip.open(vcf_file, 'r')
+            else:
+                filtered = open(vcf_file, 'r')
+            for line in filtered:
+                if vcf_file.endswith('.gz'):
+                    # Convert the line to a string from bytes
+                    line = line.decode()
+                # Add the VCF file header information to the filtered file
+                if line.startswith('#'):
+                    pass
+                else:
+                    # Split the line based on the columns
+                    ref_genome, pos, id_stat, ref, alt_string, qual, filter_stat, info_string, \
+                        format_stat, strain_info = line.rstrip().split('\t')
+                    # Initialise the ref_genome key
+                    if ref_genome not in strain_parsed_vcf_dict[strain_name]:
+                        strain_parsed_vcf_dict[strain_name][ref_genome] = dict()
+                    # Initialise the dictionary as required
+                    if strain_name not in strain_best_ref_dict:
+                        strain_best_ref_dict[strain_name] = ref_genome
+                        strain_best_ref_set_dict[strain_name] = {ref_genome}
                     else:
-                        # Split the line based on the columns
-                        ref_genome, pos, id_stat, ref, alt_string, qual, filter_stat, info_string, \
-                            format_stat, strain_info = line.rstrip().split('\t')
-                        # Initialise the ref_genome key
-                        if ref_genome not in strain_parsed_vcf_dict[strain_name]:
-                            strain_parsed_vcf_dict[strain_name][ref_genome] = dict()
-                        # Initialise the dictionary as required
-                        if strain_name not in strain_best_ref_dict:
-                            strain_best_ref_dict[strain_name] = ref_genome
-                            strain_best_ref_set_dict[strain_name] = {ref_genome}
-                        else:
-                            strain_best_ref_set_dict[strain_name].add(ref_genome)
-                        # Find the depth entry. e.g. DP=11
-                        depth_group = re.search('(DP=[0-9]+)', info_string)
-                        # Split the depth matching group on '=' and convert the depth to an int
-                        depth = int(str(depth_group.group()).split('=')[1])
-                        # Typecast pos to int
-                        pos = int(pos)
-                        # The 'Format' entry consists of several components: GT:DP:AD:RO:QR:AO:QA:GL for SNP positions,
-                        # andGQ:DP:MIN_DP:QR:RO:QA:AO for all other entries (see quoted information above)
-                        # Perform a dictionary comprehension to associate each format component with its
-                        # corresponding 'strain' component
-                        format_dict = dict()
-                        for entry in info_string.split(';'):
-                            category, value = entry.split('=')
-                            format_dict[category] = value
-                        # Store the zero coverage entries
-                        if depth == 0:
+                        strain_best_ref_set_dict[strain_name].add(ref_genome)
+                    # # Find the depth entry. e.g. DP=11
+                    # depth_group = re.search('(DP=[0-9]+)', info_string)
+                    # # Split the depth matching group on '=' and convert the depth to an int
+                    # depth = int(str(depth_group.group()).split('=')[1])
+                    # Typecast pos to int
+                    pos = int(pos)
+                    # The 'Format' entry consists of several components: GT:DP:AD:RO:QR:AO:QA:GL for SNP positions,
+                    # andGQ:DP:MIN_DP:QR:RO:QA:AO for all other entries (see quoted information above)
+                    # Perform a dictionary comprehension to associate each format component with its
+                    # corresponding 'strain' component
+                    format_dict = dict()
+                    for i, category in enumerate(format_stat.split(':')):
+                        # category, value = entry.split('=')
+                        value = strain_info.split(':')[i]
+                        format_dict[category] = value
+                        if category == 'MIN_DP' and value == '0':
+                            # Store the zero coverage entries
                             strain_parsed_vcf_dict[strain_name][ref_genome][pos] = {
                                 'CHROM': ref_genome,
                                 'REF': ref,
@@ -303,32 +310,44 @@ class VSNPTreeMethods(object):
                                 'FILTER': 'DELETION',
                                 'STATS': format_dict
                             }
+                    if len(ref) == 1:
+                        # Only store SNPs the pass filter
+                        if filter_stat == 'PASS':
+                            # Populate the dictionaries with the number of high quality SNPs
+                            strain_parsed_vcf_dict[strain_name][ref_genome][pos] = {
+                                'CHROM': ref_genome,
+                                'REF': ref,
+                                'ALT': alt_string,
+                                'QUAL': qual,
+                                'LENGTH': 1,
+                                'FILTER': 'PASS',
+                                'STATS': format_dict
+                            }
                         else:
-                            #
-                            if len(ref) == 1:
-                                # Only store SNPs with a quality score greater or equal to 150
-                                if float(qual) >= 150:
-                                    # Populate the dictionaries with the number of high quality SNPs
-                                    strain_parsed_vcf_dict[strain_name][ref_genome][pos] = {
-                                        'CHROM': ref_genome,
-                                        'REF': ref,
-                                        'ALT': alt_string,
-                                        'QUAL': qual,
-                                        'LENGTH': 1,
-                                        'FILTER': 'PASS',
-                                        'STATS': format_dict
-                                    }
-                            # Store all indels
-                            else:
+                            if pos not in strain_parsed_vcf_dict[strain_name][ref_genome]:
+                                # Populate the dictionaries with the regions that match
                                 strain_parsed_vcf_dict[strain_name][ref_genome][pos] = {
                                     'CHROM': ref_genome,
                                     'REF': ref,
                                     'ALT': alt_string,
                                     'QUAL': qual,
-                                    'LENGTH': len(alt_string),
-                                    'FILTER': 'INSERTION',
+                                    'LENGTH': 1,
+                                    'FILTER': 'MATCH',
                                     'STATS': format_dict
                                 }
+                    # Store all indels
+                    else:
+                        strain_parsed_vcf_dict[strain_name][ref_genome][pos] = {
+                            'CHROM': ref_genome,
+                            'REF': ref,
+                            'ALT': alt_string,
+                            'QUAL': qual,
+                            'LENGTH': len(alt_string),
+                            'FILTER': 'INSERTION',
+                            'STATS': format_dict
+                        }
+            filtered.close()
+        # quit()
         return strain_parsed_vcf_dict, strain_best_ref_dict, strain_best_ref_set_dict
 
     @staticmethod
@@ -515,10 +534,10 @@ class VSNPTreeMethods(object):
                         strain_snp_positions[strain_name][chrom] = list()
                     if chrom not in consolidated_ref_snp_positions[best_ref]:
                         consolidated_ref_snp_positions[best_ref][chrom] = dict()
+                    consolidated_ref_snp_positions[best_ref][chrom][pos] = pos_dict['REF']
                     # Only consider locations that are called 'PASS' in the dictionary
                     if pos_dict['FILTER'] == 'PASS':
                         # Populate the dictionary with the position and the reference sequence at that position
-                        consolidated_ref_snp_positions[best_ref][chrom][pos] = pos_dict['REF']
                         ref_snp_positions[chrom][pos] = pos_dict['REF']
                         strain_snp_positions[strain_name][chrom].append(pos)
         return consolidated_ref_snp_positions, strain_snp_positions, ref_snp_positions
@@ -688,9 +707,9 @@ class VSNPTreeMethods(object):
                         group_strain_snp_sequence[species][group][best_ref][ref_chrom] = dict()
                         write_ref = True
                     for pos in sorted(position_set):
+                        ref_pos = consolidated_ref_snp_positions[best_ref][ref_chrom][pos]
                         # Include the reference position if necessary
                         if write_ref:
-                            ref_pos = consolidated_ref_snp_positions[best_ref][ref_chrom][pos]
                             group_strain_snp_sequence[species][group][best_ref][ref_chrom][pos] = ref_pos
                         # gVCF blocks will compress stretches of normal matches. I haven't added these regions to the
                         # dictionary, so these positions will yield KeyErrors
@@ -707,9 +726,19 @@ class VSNPTreeMethods(object):
                                 try:
                                     allele_freq = float(pos_dict['STATS']['VAF'].split(',')[0])
                                     if allele_freq < 0.8:
+                                        # Create a list consisting of the reference position for now
+                                        mixed_components = [ref_pos]
+                                        # Split the 'ALT' value on commas e.g. 'T', '<*>'
+                                        for component in pos_dict['ALT'].split(','):
+                                            # Ignore the '<*>'
+                                            if component != '<*>':
+                                                # If the component is a single base, add it to the list - otherwise,
+                                                # it represents an insertion
+                                                if len(component) == 1:
+                                                    mixed_components.append(component)
                                         # Determine the IUPAC code for any multi-allelic sites
                                         for code, components in iupac.items():
-                                            if sorted(pos_dict['ALT']) == sorted(components):
+                                            if sorted(mixed_components) == sorted(components):
                                                 group_strain_snp_sequence[species][group][strain_name][ref_chrom][pos] \
                                                     = code
                                     # Otherwise use the alt allele
@@ -730,14 +759,26 @@ class VSNPTreeMethods(object):
                                     else:
                                         group_strain_snp_sequence[species][group][strain_name][ref_chrom][pos] = \
                                             pos_dict['ALT'][0]
-
-                        # If the entry isn't in the dictionary, it is because it matches the reference sequence
+                        # If the entry isn't in the dictionary, it is because it matches the reference sequence or
+                        # because there is a deletion
                         except KeyError:
-                            try:
-                                group_strain_snp_sequence[species][group][strain_name][ref_chrom][pos] \
-                                    = consolidated_ref_snp_positions[best_ref][ref_chrom][pos]
-                            except KeyError:
-                                pass
+                            # Create a copy of the dictionary with the strain-specific reference chromosome information
+                            # derived from the gVCF file
+                            data = strain_parsed_vcf_dict[strain_name][ref_chrom]
+                            # Find the closest position below the current position in the dictionary
+                            closest_pos = min(data.keys(), key=lambda k: abs(k - pos))
+                            # If the position is a DELETION, store a -
+                            if data[closest_pos]['FILTER'] == 'DELETION':
+                                group_strain_snp_sequence[species][group][strain_name][ref_chrom][pos] = '-'
+                            # Otherwise, the position should match the reference genome sequence
+                            else:
+                                try:
+                                    if ref_chrom not in group_strain_snp_sequence[species][group][strain_name]:
+                                        group_strain_snp_sequence[species][group][strain_name][ref_chrom] = dict()
+                                    group_strain_snp_sequence[species][group][strain_name][ref_chrom][pos] \
+                                        = consolidated_ref_snp_positions[best_ref][ref_chrom][pos]
+                                except KeyError:
+                                    pass
         return group_strain_snp_sequence, species_group_best_ref
 
     @staticmethod
@@ -1248,6 +1289,98 @@ class VSNPTreeMethods(object):
                                     else:
                                         species_group_snp_num_dict[species][group][ref_chrom][pos] += 1
         return species_group_snp_num_dict
+
+    @staticmethod
+    def create_snp_matrix(species_group_best_ref, group_strain_snp_sequence, matrix_path):
+        """
+        Create a matrix of the pairwise SNPs between each strain
+        :param species_group_best_ref: type DICT: Dictionary of species code: group name; best ref
+        :param group_strain_snp_sequence: type DICT: Dictionary of species code: group name: strain name:
+        reference chromosome: position: strain-specific sequence
+        :param matrix_path: type STR: Absolute path to folder in which matrix files are to be created
+        """
+        # Create the matrix_path if required
+        make_path(matrix_path)
+        # Initialise a dictionary to store the pairwise SNPs between all the strains
+        snp_matrix = dict()
+        for species, group_dict in group_strain_snp_sequence.items():
+            for group, strain_dict in group_dict.items():
+                # Extract the name of the reference strain
+                consolidated_ref = species_group_best_ref[species][group]
+                # Iterate through the dictionary twice - get a strain name to be used to compare against the other
+                # strains
+                for compare_strain in group_strain_snp_sequence[species][group]:
+                    # Initialise the SNP dictionary with the target name
+                    snp_matrix[compare_strain] = dict()
+                    # The target strain will not have any SNPs against itself, but this needs to be recorded for
+                    # creating the square matrix file
+                    snp_matrix[compare_strain][compare_strain] = 0
+                    # Iterate through the dictionary again to get the query strain
+                    for strain_name, ref_dict in group_strain_snp_sequence[species][group].items():
+                        # Query strain must be different than target strain
+                        if strain_name != compare_strain:
+                            # Initialise the keys in the snp_matrix dictionary as required
+                            if strain_name not in snp_matrix[compare_strain]:
+                                snp_matrix[compare_strain].update({strain_name: 0})
+                            # Iterate through the reference chromosomes, and position dictionaries nested in the
+                            # reference dictionary
+                            for ref_chrom, pos_dict in ref_dict.items():
+                                # Extract the position and sequence at that position on the reference chromosome
+                                for pos, seq in pos_dict.items():
+                                    # Determine the sequence of the target strain at this position
+                                    try:
+                                        # If this position is in the dictionary, extract the sequence from the
+                                        # dictionary
+                                        compare_seq = \
+                                            group_strain_snp_sequence[species][group][compare_strain][ref_chrom][pos]
+                                    except KeyError:
+                                        # If this position is not in the dictionary, then it is because it matches the
+                                        # reference sequence, so that should be used
+                                        compare_seq = \
+                                            group_strain_snp_sequence[species][group][consolidated_ref][ref_chrom][pos]
+                                    # If the target and query sequences do not match, increment the snp_matrix counter
+                                    if seq != compare_seq:
+                                        snp_matrix[compare_strain][strain_name] += 1
+                # Write the snp_matrix dictionary to a .csv file
+                with open(os.path.join(matrix_path, '{species}_{group}_snp_matrix.csv'
+                                       .format(species=species,
+                                               group=group)), 'w') as matrix_file:
+                    # Initialise variables to store the header, and body strings
+                    header = 'Strain,'
+                    body = str()
+                    # A count that is incremented for each query strain, so that a list can be accessed by the
+                    # current index
+                    count = 0
+                    # Iterate through all the strains in the snp_matrix dictionary
+                    for ref, compare_dict in sorted(snp_matrix.items()):
+                        # The reference strain is special, so add '(ref)' to the strain name
+                        if ref == consolidated_ref:
+                            ref += ' (ref)'
+                        # Update the header with the strain name
+                        header += '{ref},'.format(ref=ref)
+                        # Boolean on whether the name of the current query strain has been printed yet
+                        print_strain = True
+                        # Iterate through all the strains compared to this target strain
+                        for query, num_snps in sorted(compare_dict.items()):
+                            # Only include the strain name if it hasn't already been added to the strain column
+                            if print_strain:
+                                # Extract the strain name from the dictionary based on its sorted position
+                                strain = sorted(compare_dict.items())[count][0]
+                                # Add the '(ref)' string when processing the reference strain
+                                if strain == consolidated_ref:
+                                    strain += ' (ref)'
+                                body += '{query},'.format(query=strain)
+                                # Set the boolean to False, so that the strain name isn't added again in this row
+                                print_strain = False
+                                # Increment the count for the next sample name
+                                count += 1
+                            # Add the number of SNPs between the query and target genomes
+                            body += '{num_snps},'.format(num_snps=num_snps)
+                        # Add a newline character to separate each query strain
+                        body += '\n'
+                    header += '\n'
+                    matrix_file.write(header)
+                    matrix_file.write(body)
 
     @staticmethod
     def rank_snps(species_group_snp_num_dict):
