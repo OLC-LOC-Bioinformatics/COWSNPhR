@@ -630,7 +630,7 @@ class VSNPTreeMethods(object):
                     if ref_chrom not in filtered_group_positions[species][group]:
                         filtered_group_positions[species][group][ref_chrom] = set()
                     for pos in pos_list:
-                        # Boolean on whether the SNP position is to be kep
+                        # Count of SNPs in range of this SNP
                         add_pos = 0
                         # Simple window of 1001 bp (pos - 500 to pos + 500)
                         for i in range(pos - bp_range, pos + bp_range):

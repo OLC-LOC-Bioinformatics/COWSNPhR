@@ -164,7 +164,7 @@ class COWSNPhR(object):
                             print(ref_chrom, len(pos_set))
         logging.info("Performing SNP density filtering")
         filtered_group_positions = VSNPTreeMethods.filter_snps(group_positions_set=group_positions_set,
-                                                               threshold=3)
+                                                               threshold=1)
         if self.debug:
             logging.info('Number of SNPs per contig following density filtering:')
             for species_code, group_dict in filtered_group_positions.items():
