@@ -11,6 +11,7 @@ import xlsxwriter
 import shutil
 import pandas
 import gzip
+import math
 import xlrd
 import os
 
@@ -643,7 +644,7 @@ class VSNPTreeMethods(object):
 
     @staticmethod
     def load_snp_sequence(strain_parsed_vcf_dict, strain_consolidated_ref_dict, group_positions_set, strain_groups,
-                          strain_species_dict, consolidated_ref_snp_positions):
+                          strain_species_dict, consolidated_ref_snp_positions, iupac):
         """
         Parse the gVCF-derived dictionaries to determine the strain-specific sequence at every SNP position for every
         group
@@ -656,25 +657,11 @@ class VSNPTreeMethods(object):
         :param strain_species_dict: type DICT: Dictionary of strain name: species code
         :param consolidated_ref_snp_positions: type DICT: Dictionary of reference name: absolute position: reference
         base call
+        :param iupac: type DICT: Dictionary of degenerate code: nucleotides included in group
         :return: group_strain_snp_sequence: Dictionary of species code: group name: strain name:
         reference chromosome: position: strain-specific sequence
         :return: species_group_best_ref: Dictionary of species code: group name; best ref
         """
-        # Dictionary of degenerate IUPAC codes
-        iupac = {
-            'R': ['A', 'G'],
-            'Y': ['C', 'T'],
-            'S': ['C', 'G'],
-            'W': ['A', 'T'],
-            'K': ['G', 'T'],
-            'M': ['A', 'C'],
-            'B': ['C', 'G', 'T'],
-            'D': ['A', 'G', 'T'],
-            'H': ['A', 'C', 'T'],
-            'V': ['A', 'C', 'G'],
-            'N': ['A', 'C', 'G', 'T'],
-            '-': ['-']
-        }
         # Initialise a dictionary to store all the SNP locations, and the reference sequence for each reference
         # genome
         group_strain_snp_sequence = dict()
@@ -956,10 +943,9 @@ class VSNPTreeMethods(object):
                         # -p: random number seed
                         raxml_base_cmd = \
                             'raxmlHPC-PTHREADS-SSE3 -s {fasta_file} -m GTRCATI ' \
-                            '-o {best_ref} -p 12345 -T {threads}'\
-                            .format(fasta_file=fasta_file,
-                                    best_ref=best_ref,
-                                    threads=threads)
+                            '-o {best_ref} -p 12345 -T {threads}'.format(fasta_file=fasta_file,
+                                                                         best_ref=best_ref,
+                                                                         threads=threads)
                         # For the 'best tree' analysis, supply the RAxML working dir as the output directory
                         # -n: name the output file using species_group
                         raxml_cmd = raxml_base_cmd + ' -n {species}_{group} -w {output_dir}' \
@@ -1240,6 +1226,9 @@ class VSNPTreeMethods(object):
                                             = gene
                                         species_group_annotated_snps_dict[species][group][ref_chrom][pos]['product'] \
                                             = feature.qualifiers['product'][0]
+                                        # Extract the location of the coding sequence e.g. [48999:49497](+)
+                                        species_group_annotated_snps_dict[species][group][ref_chrom][pos]['location'] \
+                                            = feature.location
                                     # Populate negative key: value pairs if the position is not in the dictionary
                                     except KeyError:
                                         species_group_annotated_snps_dict[species][group][ref_chrom][pos]['locus'] \
@@ -1247,6 +1236,8 @@ class VSNPTreeMethods(object):
                                         species_group_annotated_snps_dict[species][group][ref_chrom][pos]['gene'] \
                                             = 'None'
                                         species_group_annotated_snps_dict[species][group][ref_chrom][pos]['product'] \
+                                            = 'None'
+                                        species_group_annotated_snps_dict[species][group][ref_chrom][pos]['location'] \
                                             = 'None'
         return species_group_annotated_snps_dict
 
@@ -1289,6 +1280,141 @@ class VSNPTreeMethods(object):
                                     else:
                                         species_group_snp_num_dict[species][group][ref_chrom][pos] += 1
         return species_group_snp_num_dict
+
+    @staticmethod
+    def determine_aa_sequence(group_strain_snp_sequence, species_group_best_ref, strain_parsed_vcf_dict,
+                              species_group_annotated_snps_dict, reference_link_path_dict, species_group_snp_num_dict,
+                              iupac):
+        """
+        Determine the amino acid residue at the SNP position
+        :param group_strain_snp_sequence: type DICT: Dictionary of species code: group name: strain name:
+        reference chromosome: position: strain-specific sequence
+        :param species_group_best_ref: type DICT: Dictionary of species code: group name; best ref
+        :param strain_parsed_vcf_dict: type DICT: Dictionary of strain name: dictionary of parsed VCF data
+        :param species_group_annotated_snps_dict: type DICT: Dictionary of species code: group name: reference
+        :param reference_link_path_dict: type DICT: Dictionary of strain name: relative path to reference genome
+        dependency folder
+        :param species_group_snp_num_dict: type DICT: Dictionary of species code: group name: reference chromosome:
+        position: number of strains that have a SNP at that position
+        :param iupac: type DICT: Dictionary of degenerate code: nucleotides included in group
+        :return translated_snp_residue_dict: Dictionary of species: group: ref_chrom: pos: {pos-specific sequence info}
+        """
+        # Initialise a dictionary to store the annotations for the group-specific SNPs
+        translated_snp_residue_dict = dict()
+        ref_translated_snp_residue_dict = dict()
+        for species, group_dict in group_strain_snp_sequence.items():
+            # Initialise the key in the dictionary if necessary
+            if species not in translated_snp_residue_dict:
+                translated_snp_residue_dict[species] = dict()
+                ref_translated_snp_residue_dict[species] = dict()
+            for group, strain_dict in group_dict.items():
+                # Extract the name of the reference genome from the species_group_best_ref dictionary using the species
+                # code and the group name
+                best_ref = species_group_best_ref[species][group]
+                # Use SeqIO to parse all the records in the reference FASTA file
+                ref_records = SeqIO.to_dict(SeqIO.parse(reference_link_path_dict[best_ref], 'fasta'))
+                # Initialise the group key in the dictionary as required
+                if group not in translated_snp_residue_dict[species]:
+                    translated_snp_residue_dict[species][group] = dict()
+                    ref_translated_snp_residue_dict[species][group] = dict()
+                for strain_name, ref_dict in strain_dict.items():
+                    if strain_name != best_ref:
+                        # Add the strain_name to the nested dictionary
+                        if strain_name not in translated_snp_residue_dict[species][group]:
+                            translated_snp_residue_dict[species][group][strain_name] = dict()
+                        for ref_chrom in ref_dict:
+                            # Initialise the ref_chrom key in the dictionary as required
+                            if ref_chrom not in translated_snp_residue_dict[species][group][strain_name]:
+                                translated_snp_residue_dict[species][group][strain_name][ref_chrom] = dict()
+                                ref_translated_snp_residue_dict[species][group][ref_chrom] = dict()
+                                # Iterate through all the SNP positions found in the group
+                                for pos in species_group_snp_num_dict[species][group][ref_chrom]:
+                                    # Extract the SNP sequence from the ref_dict
+                                    try:
+                                        snp_seq = ref_dict[ref_chrom][pos]
+                                    # If the strain does not have an entry at that position, it matches the reference
+                                    # sequence
+                                    except KeyError:
+                                        snp_seq = strain_dict[best_ref][ref_chrom][pos]
+                                    # Extract the location of the coding sequence from the reference chromosome
+                                    # containing the SNP position
+                                    location = \
+                                        species_group_annotated_snps_dict[species][group][ref_chrom][pos]['location']
+                                    # rRNA products are not coding
+                                    product = \
+                                        species_group_annotated_snps_dict[species][group][ref_chrom][pos]['product']
+                                    # 'None' locations and rRNA products do not correspond to coding regions.
+                                    # Deletions do not have a corresponding amino acid sequence
+                                    if location != 'None' and 'ribosomal RNA' not in product and snp_seq != '-':
+                                        # Extract the coding sequence of reference genome containing the SNP position
+                                        ref_nt_seq = ref_records[ref_chrom].seq[location.start:location.end]
+                                        # If the SNP is a degenerate base, parse the 'ALT' entry from the gVCF file
+                                        if snp_seq in iupac:
+                                            # The 'ALT' entry contains the alternate base, and the reference: C,<*>
+                                            alt_dict = strain_parsed_vcf_dict[strain_name][ref_chrom][pos]['ALT']
+                                            # Split the entry on the comma, and update the snp_seq variable with
+                                            # the alternate base from C,<*>
+                                            snp_seq = alt_dict.split(',')[0]
+                                        # Create a variable to store the raw SNP sequence
+                                        alt_seq = snp_seq
+                                        # If the coding sequence containing the SNP position is on the positive strand,
+                                        # the location of the SNP is calculated by subtracting the defined start pos
+                                        # of the coding sequence (+1 due to 0-based indexing) from the global SNP pos
+                                        if location.strand == 1:
+                                            # e.g. 49340 (pos) - 48999 (location.start) + 1 = 342 (snp_loc)
+                                            '''
+                                            CDS 49000..49497
+                                            /locus_tag="PELMLHNL_01252"
+                                            '''
+                                            snp_loc = pos - location.start + 1
+                                        # If the coding sequence containing the SNP position is on the negative strand,
+                                        # the location of the SNP is calculated by subtracting the global SNP position
+                                        # from the end of the defined end position of the coding sequence (don't need
+                                        # to worry about 0-based indexing)
+                                        else:
+                                            # The reference sequence is treated as the reverse complement
+                                            ref_nt_seq = ref_nt_seq.reverse_complement()
+                                            # e.g. 3216 (location.end) - 2118 (pos) = 1098 (snp_loc)
+                                            '''
+                                            CDS complement(1285..3216)
+                                            /gene="ccmF_1"
+                                            '''
+                                            snp_loc = location.end - pos
+                                            # Convert the snp sequence to be the reverse complement
+                                            snp_seq = Seq(snp_seq)
+                                            snp_seq = str(snp_seq.reverse_complement())
+                                        # Strings are not mutable, so convert the coding sequence to a list in
+                                        # anticipation of modifying the sequence at the SNP position
+                                        snp_nt_seq = list(ref_nt_seq)
+                                        # Update the list at the SNP index with the new sequence: e.g. at position 342,
+                                        # the base 'T' is substituted with a 'G'
+                                        snp_nt_seq[snp_loc] = snp_seq
+                                        # Convert the list to be a Biopython Seq object
+                                        snp_nt_seq = Seq(''.join(snp_nt_seq))
+                                        # Determine the position of the amino acid residue within the translated
+                                        # sequence by dividing the location in the nucleic acid sequence by three and
+                                        # rounding down e.g. 342 (snp_loc) / 3 = 114
+                                        aa_loc = math.floor(snp_loc / 3)
+                                        # Populate the dictionary with all the necessary data
+                                        translated_snp_residue_dict[species][group][strain_name][ref_chrom][pos] = {
+                                            'snp_nt_seq_raw': ref_dict[ref_chrom][pos],
+                                            'snp_nt_seq_alt': alt_seq,
+                                            'snp_nt_seq_cds': snp_nt_seq[snp_loc],
+                                            'snp_aa_seq_cds': str(snp_nt_seq.translate())[aa_loc],
+                                            'ref_nt_seq_raw': ref_records[ref_chrom].seq[location.start:location.end]
+                                            [snp_loc],
+                                            'ref_nt_seq_cds': ref_nt_seq[snp_loc],
+                                            'ref_aa_seq_cds': str(ref_nt_seq.translate())[aa_loc],
+                                            'cds_strand': location.strand
+                                        }
+                                        ref_translated_snp_residue_dict[species][group][ref_chrom][pos] = {
+                                            'ref_nt_seq_raw': ref_records[ref_chrom].seq[location.start:location.end]
+                                            [snp_loc],
+                                            'ref_nt_seq_cds': ref_nt_seq[snp_loc],
+                                            'ref_aa_seq_cds': str(ref_nt_seq.translate())[aa_loc],
+                                            'cds_strand': location.strand
+                                        }
+        return translated_snp_residue_dict, ref_translated_snp_residue_dict
 
     @staticmethod
     def create_snp_matrix(species_group_best_ref, group_strain_snp_sequence, matrix_path):
@@ -1342,9 +1468,9 @@ class VSNPTreeMethods(object):
                                     if seq != compare_seq:
                                         snp_matrix[compare_strain][strain_name] += 1
                 # Write the snp_matrix dictionary to a .csv file
-                with open(os.path.join(matrix_path, '{species}_{group}_snp_matrix.csv'
-                                       .format(species=species,
-                                               group=group)), 'w') as matrix_file:
+                with open(os.path.join(matrix_path, '{species}_{group}_snp_matrix.csv'.format(
+                        species=species,
+                        group=group)), 'w') as matrix_file:
                     # Initialise variables to store the header, and body strings
                     header = 'Strain,'
                     body = str()
@@ -1477,8 +1603,8 @@ class VSNPTreeMethods(object):
 
     @staticmethod
     def create_summary_table(species_group_sorted_snps, species_group_order_dict, species_group_best_ref,
-                             group_strain_snp_sequence, species_group_annotated_snps_dict, species_group_num_snps,
-                             summary_path):
+                             group_strain_snp_sequence, species_group_annotated_snps_dict, translated_snp_residue_dict,
+                             ref_translated_snp_residue_dict, species_group_num_snps, summary_path, molecule):
         """
         Create an Excel table that summarises the sorted SNP positions, and adds the annotations
         :param species_group_sorted_snps: type DICT: Dictionary of species code: group name: reference chromosome:
@@ -1489,9 +1615,14 @@ class VSNPTreeMethods(object):
         reference chromosome: position: strain-specific sequence
         :param species_group_annotated_snps_dict: type DICT: Dictionary of species code: group name: reference
         chromosome: reference position: annotation dictionary
+        :param translated_snp_residue_dict: type DICT: Dictionary of species: group: strain_name: ref_chrom: pos:
+        {pos-specific sequence info}
+        :param ref_translated_snp_residue_dict: type DICT: Dictionary of species: group: ref_chrom: pos:
+        {pos-specific sequence info}
         :param species_group_num_snps: type DICT: Dictionary of species code: group name: total number of
         group-specific SNP positions
         :param summary_path: type STR: Absolute path to folder in which summary reports are to be created
+        :param molecule: type STR: String of whether the desired outputs are nucleotide (nt) or amino acid residue (aa)
         """
         # Create the summary path as required
         make_path(summary_path)
@@ -1504,16 +1635,18 @@ class VSNPTreeMethods(object):
                 # be added to the report, and cannot overwrite the previous results
                 current_col = 0
                 # Set the name of the summary table
-                summary_table = os.path.join(summary_path, '{species}_{group}_sorted_table.xlsx'
+                summary_table = os.path.join(summary_path, '{species}_{group}_{molecule}_sorted_table.xlsx'
                                              .format(species=species,
-                                                     group=group))
+                                                     group=group,
+                                                     molecule=molecule))
                 # Create an xlsxwriter workbook object
                 wb = xlsxwriter.Workbook(summary_table)
                 # Create a worksheet in the workbook
                 ws = wb.add_worksheet()
                 # Create all the necessary formats for the workbook
                 header, courier, bold_courier, top_bold_courier, annotation, format_dict, ambiguous_format = \
-                    VSNPTreeMethods.format_workbook(wb=wb)
+                    VSNPTreeMethods.format_workbook(wb=wb,
+                                                    molecule=molecule)
                 # Initialise a variable to store the current row under consideration
                 row = 0
                 # Merge all the cells in the first row from the second column until the column corresponding to
@@ -1595,10 +1728,27 @@ class VSNPTreeMethods(object):
                                         cell_format=courier)
                         # Iterate through the sorted SNPs, and write the reference sequence for each position
                         for i, pos in enumerate(snp_order):
-                            ws.write_string(row=row,
-                                            col=current_col + i + 1,
-                                            string=ref_dict[pos],
-                                            cell_format=bold_courier)
+                            if molecule == 'nt':
+                                ws.write_string(row=row,
+                                                col=current_col + i + 1,
+                                                string=ref_dict[pos],
+                                                cell_format=bold_courier)
+                            else:
+                                # Determine the sequence at the current position, and the format to use to write the
+                                # sequence in the report
+                                sequence, base_format = VSNPTreeMethods.format_sequence(
+                                    pos=pos,
+                                    sequence_dict=ref_translated_snp_residue_dict[species][group][ref_chrom],
+                                    ref_dict=ref_dict,
+                                    bold_courier=bold_courier,
+                                    format_dict=format_dict,
+                                    ambiguous_format=ambiguous_format,
+                                    molecule=molecule,
+                                    ref=True)
+                                ws.write_string(row=row,
+                                                col=current_col + i + 1,
+                                                string=sequence,
+                                                cell_format=base_format)
                         # Increment the row
                         row += 1
                         # Freeze the panes, so that the row containing the reference sequence is at the bottom of the
@@ -1620,24 +1770,29 @@ class VSNPTreeMethods(object):
                                                 string=strain_name,
                                                 cell_format=courier)
                                 for i, pos in enumerate(snp_order):
-                                    # Extract the position-specific sequence from the dictionary
-                                    try:
-                                        sequence = sequence_dict[pos]
-                                    except KeyError:
-                                        sequence = ref_dict[pos]
-                                    # Determine the format to use for the cell based on the sequence
-                                    # If the sequence matches the reference sequence, it uses the standard black text on
-                                    # white background format
-                                    base_format = bold_courier
-                                    if sequence != ref_dict[pos]:
-                                        # If the sequence is one of A, C, G, T, or N, extract the appropriate format
-                                        # from the dictionary
-                                        try:
-                                            base_format = format_dict[sequence]
-                                        # If the sequence is a degenerate base (e.g. M), or missing (-), use the
-                                        # 'ambiguous' format
-                                        except KeyError:
-                                            base_format = ambiguous_format
+                                    if molecule == 'nt':
+                                        # Determine the sequence of the nucleotide at the current position, and any
+                                        # special formatting required
+                                        sequence, base_format = VSNPTreeMethods.format_sequence(
+                                            pos=pos,
+                                            sequence_dict=sequence_dict,
+                                            ref_dict=ref_dict,
+                                            bold_courier=bold_courier,
+                                            format_dict=format_dict,
+                                            ambiguous_format=ambiguous_format,
+                                            molecule=molecule)
+                                    # For amino acid reports, use the translated_snp_residue_dict instead
+                                    else:
+                                        sequence_dict = \
+                                            translated_snp_residue_dict[species][group][strain_name][ref_chrom]
+                                        sequence, base_format = VSNPTreeMethods.format_sequence(
+                                            pos=pos,
+                                            sequence_dict=sequence_dict,
+                                            ref_dict=ref_dict,
+                                            bold_courier=bold_courier,
+                                            format_dict=format_dict,
+                                            ambiguous_format=ambiguous_format,
+                                            molecule=molecule)
                                     # Write the sequence in the appropriate format
                                     ws.write_string(row=row,
                                                     col=current_col + i + 1,
@@ -1674,10 +1829,11 @@ class VSNPTreeMethods(object):
                 wb.close()
 
     @staticmethod
-    def format_workbook(wb, font_size=8):
+    def format_workbook(wb, molecule, font_size=8):
         """
         Create the required formats for the summary table
         :param wb: xlsxwriter workbook object
+        :param molecule: type STR: Creating nucleotide or amino acid outputs
         :param font_size: type INT: Font size to use in creating the report
         :return: workbook formats
         """
@@ -1706,33 +1862,186 @@ class VSNPTreeMethods(object):
                                     'font_color': '#0A028C',
                                     'rotation': '-90',
                                     'align': 'top'})
-        # Create a dictionary to store formats for the difference nucleotides
-        format_dict = {
-            'A': wb.add_format({'bg_color': '#58FA82',
-                                'bold': True,
-                                'font_name': 'Courier New',
-                                'font_size': font_size}),
-            'C': wb.add_format({'bg_color': '#0000FF',
-                                'bold': True,
-                                'font_name': 'Courier New',
-                                'font_size': font_size}),
-            'G': wb.add_format({'bg_color': '#F7FE2E',
-                                'bold': True,
-                                'font_name': 'Courier New',
-                                'font_size': font_size}),
-            'T': wb.add_format({'bg_color': '#FF0000',
-                                'bold': True,
-                                'font_name': 'Courier New',
-                                'font_size': font_size}),
-            'N': wb.add_format({'bg_color': '#E2CFDD',
-                                'bold': True,
-                                'font_name': 'Courier New',
-                                'font_size': font_size})
-        }
-        # Create a format to handle IUPAC degenerate bases
-        ambiguous_format = wb.add_format({'font_color': '#C70039',
-                                          'bg_color': '#E2CFDD',
-                                          'font_name': 'Courier New',
-                                          'font_size': font_size,
-                                          'bold': True})
+        if molecule == 'nt':
+            # Create a dictionary to store formats for the difference nucleotides
+            format_dict = {
+                'A': wb.add_format({'bg_color': '#58FA82',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'C': wb.add_format({'bg_color': '#0000FF',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'G': wb.add_format({'bg_color': '#F7FE2E',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'T': wb.add_format({'bg_color': '#FF0000',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'N': wb.add_format({'bg_color': '#E2CFDD',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size})
+            }
+            # Create a format to handle IUPAC degenerate bases
+            ambiguous_format = wb.add_format({'font_color': '#C70039',
+                                              'bg_color': '#E2CFDD',
+                                              'font_name': 'Courier New',
+                                              'font_size': font_size,
+                                              'bold': True})
+        else:
+            # Create a dictionary to store formats for the difference nucleotides
+            format_dict = {
+                'A': wb.add_format({'bg_color': '#C8C8C8',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'R': wb.add_format({'bg_color': '#145AFF',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'N': wb.add_format({'bg_color': '#00DCDC',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'D': wb.add_format({'bg_color': '#E60A0A',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'C': wb.add_format({'bg_color': '#E6E600',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'E': wb.add_format({'bg_color': '#E60A0A',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'Q': wb.add_format({'bg_color': '#00DCDC',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'G': wb.add_format({'bg_color': '#EBEBEB',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'H': wb.add_format({'bg_color': '#8282D2',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'I': wb.add_format({'bg_color': '#0F820F',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'L': wb.add_format({'bg_color': '#0F820F',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'K': wb.add_format({'bg_color': '#145AFF',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'M': wb.add_format({'bg_color': '#E6E600',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'F': wb.add_format({'bg_color': '#3232AA',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'P': wb.add_format({'bg_color': '#DC9682',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'S': wb.add_format({'bg_color': '#FA9600',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'T': wb.add_format({'bg_color': '#FA9600',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'W': wb.add_format({'bg_color': '#B45AB4',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'Y': wb.add_format({'bg_color': '#3232AA',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+                'V': wb.add_format({'bg_color': '#0F820F',
+                                    'bold': True,
+                                    'font_name': 'Courier New',
+                                    'font_size': font_size}),
+            }
+            # Create a format to handle non-standard bases
+            ambiguous_format = wb.add_format({'font_color': '#C70039',
+                                              'bg_color': '#BEA06E',
+                                              'font_name': 'Courier New',
+                                              'font_size': font_size,
+                                              'bold': True})
         return header, courier, bold_courier, top_bold_courier, annotation, format_dict, ambiguous_format
+
+    @staticmethod
+    def format_sequence(pos, sequence_dict, ref_dict, bold_courier, format_dict, ambiguous_format, molecule, ref=False):
+        """
+        Add the necessary formatting to the current position
+        :param pos: type INT: Current position in the sequence of the reference chromosome
+        :param sequence_dict: type DICT: Dictionary of strain-specific SNP data. Accessed with pos
+        :param ref_dict: type DICT: Dictionary of the reference genome-specific location data. Accessed with pos
+        :param bold_courier: XLSX writer formatting block for bold courier
+        :param format_dict: type DICT: Dictionary of nucleotide/amino acid-specific XLSX writer formats
+        :param ambiguous_format: XLSX writer formatting block for sequences that do not exist in format_dict
+        :param molecule: type STR: Creating nucleotide or amino acid outputs
+        :param ref: type BOOL: Create outputs for a reference genome rather than a query strain
+        :return: sequence: The nucleotide base or amino acid residue at the current position of the strain under
+        consideration
+        return: base_format: The location-specific formatting to apply to the cell containing the sequence
+        """
+        # Extract the position-specific sequence from the dictionary
+        if molecule == 'nt':
+            try:
+                sequence = sequence_dict[pos]
+            # A missing key indicates that the strain-specific sequence matches the reference sequence
+            except KeyError:
+                sequence = ref_dict[pos]
+        else:
+            # The reference dictionary does not include the 'strain_name' key, and missing keys are due to the fact
+            # that the SNP position falls in a non-coding region
+            if ref:
+                try:
+                    sequence = sequence_dict[pos]['ref_aa_seq_cds']
+                except KeyError:
+                    sequence = 'NC'
+            # Extract the strain-specific amino acid sequence at the SNP position
+            else:
+                try:
+                    sequence = sequence_dict[pos]['snp_aa_seq_cds']
+                # If the key is missing from the dictionary it is either because of a deletion or that the SNP position
+                # falls in a non-coding region
+                except KeyError:
+                    sequence = '-'
+        # Determine the format to use for the cell based on the sequence
+        # If the sequence matches the reference sequence, it uses the standard black text on
+        # white background format
+        base_format = bold_courier
+        if molecule == 'nt':
+            if sequence != ref_dict[pos]:
+                # If the sequence is one of A, C, G, T, or N, extract the appropriate format
+                # from the dictionary
+                try:
+                    base_format = format_dict[sequence]
+                # If the sequence is a degenerate base (e.g. M), or missing (-), use the
+                # 'ambiguous' format
+                except KeyError:
+                    base_format = ambiguous_format
+        else:
+            try:
+                base_format = format_dict[sequence]
+            # If the sequence is a degenerate base (e.g. M), or missing (-), use the
+            # 'ambiguous' format
+            except KeyError:
+                base_format = ambiguous_format
+        return sequence, base_format

@@ -179,7 +179,8 @@ class COWSNPhR(object):
                                               group_positions_set=filtered_group_positions,
                                               strain_groups=self.strain_groups,
                                               strain_species_dict=self.strain_species_dict,
-                                              consolidated_ref_snp_positions=consolidated_ref_snp_positions)
+                                              consolidated_ref_snp_positions=consolidated_ref_snp_positions,
+                                              iupac=self.iupac)
         logging.info('Creating multi-FASTA files of core SNPs')
         group_folders, species_folders, self.group_fasta_dict = \
             VSNPTreeMethods.create_multifasta(group_strain_snp_sequence=self.group_strain_snp_sequence,
@@ -360,6 +361,17 @@ class COWSNPhR(object):
             logging.info('SNP prevalence')
             for ref_chrom, pos_dict in species_group_snp_num_dict['species']['group'].items():
                 print(ref_chrom, pos_dict)
+        logging.info('Determining amino acid sequence at SNP locations')
+        self.reference_link_path_dict[self.ref_strain] = self.ref_fasta
+        self.translated_snp_residue_dict, self.ref_translated_snp_residue_dict = \
+            VSNPTreeMethods.determine_aa_sequence(
+                group_strain_snp_sequence=self.group_strain_snp_sequence,
+                species_group_best_ref=self.species_group_best_ref,
+                strain_parsed_vcf_dict=self.strain_parsed_vcf_dict,
+                species_group_annotated_snps_dict=self.species_group_annotated_snps_dict,
+                reference_link_path_dict=self.reference_link_path_dict,
+                species_group_snp_num_dict=species_group_snp_num_dict,
+                iupac=self.iupac)
         logging.info('Creating SNP matrix')
         VSNPTreeMethods.create_snp_matrix(species_group_best_ref=self.species_group_best_ref,
                                           group_strain_snp_sequence=self.group_strain_snp_sequence,
@@ -394,8 +406,22 @@ class COWSNPhR(object):
                                              species_group_best_ref=self.species_group_best_ref,
                                              group_strain_snp_sequence=self.group_strain_snp_sequence,
                                              species_group_annotated_snps_dict=self.species_group_annotated_snps_dict,
+                                             translated_snp_residue_dict=self.translated_snp_residue_dict,
+                                             ref_translated_snp_residue_dict=self.ref_translated_snp_residue_dict,
                                              species_group_num_snps=self.species_group_num_snps,
-                                             summary_path=self.summary_path)
+                                             summary_path=self.summary_path,
+                                             molecule='nt')
+        # Amino acid summary table
+        VSNPTreeMethods.create_summary_table(species_group_sorted_snps=self.species_group_sorted_snps,
+                                             species_group_order_dict=self.species_group_order_dict,
+                                             species_group_best_ref=self.species_group_best_ref,
+                                             group_strain_snp_sequence=self.group_strain_snp_sequence,
+                                             species_group_annotated_snps_dict=self.species_group_annotated_snps_dict,
+                                             translated_snp_residue_dict=self.translated_snp_residue_dict,
+                                             ref_translated_snp_residue_dict=self.ref_translated_snp_residue_dict,
+                                             species_group_num_snps=self.species_group_num_snps,
+                                             summary_path=self.summary_path,
+                                             molecule='aa')
 
     def __init__(self, seq_path, ref_path, threads, working_path, debug):
         # Determine the path in which the sequence files are located. Allow for ~ expansion
@@ -430,6 +456,21 @@ class COWSNPhR(object):
         self.summary_path = os.path.join(self.seq_path, 'summary_tables')
         self.matrix_path = os.path.join(self.seq_path, 'snp_matrix')
         self.logfile = os.path.join(self.seq_path, 'log')
+        # Dictionary of degenerate IUPAC codes
+        self.iupac = {
+            'R': ['A', 'G'],
+            'Y': ['C', 'T'],
+            'S': ['C', 'G'],
+            'W': ['A', 'T'],
+            'K': ['G', 'T'],
+            'M': ['A', 'C'],
+            'B': ['C', 'G', 'T'],
+            'D': ['A', 'G', 'T'],
+            'H': ['A', 'C', 'T'],
+            'V': ['A', 'C', 'G'],
+            'N': ['A', 'C', 'G', 'T'],
+            '-': ['-']
+        }
         self.ref_fasta = str()
         self.ref_strain = str()
         self.strain_name_dict = dict()
@@ -451,6 +492,8 @@ class COWSNPhR(object):
         self.strain_species_dict = dict()
         self.species_group_order_dict = dict()
         self.species_group_annotated_snps_dict = dict()
+        self.translated_snp_residue_dict = dict()
+        self.ref_translated_snp_residue_dict = dict()
         self.full_best_ref_gbk_dict = dict()
         self.species_group_num_snps = dict()
         self.species_group_sorted_snps = dict()
