@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
-from olctools.accessoryFunctions.accessoryFunctions import run_subprocess, SetupLogging, write_to_logfile
-from vsnp.vsnp_vcf_methods import VCFMethods
-from vsnp.vsnp_tree_methods import VSNPTreeMethods
-from Bio import SeqIO
+from olctools.accessoryFunctions.accessoryFunctions import SetupLogging
+from cowsnphr.vcf_methods import VCFMethods
+from cowsnphr.tree_methods import TreeMethods
 from argparse import ArgumentParser
 from pathlib import Path
 import multiprocessing
@@ -48,18 +47,19 @@ class COWSNPhR(object):
 
     def reference_mapping(self):
         """
-        Perform reference mapping with bowtie2, and attempt to assemble any unmapped reads into contigs with SKESA
+        Perform reference mapping with bowtie2
         """
         logging.info('Extracting paths to reference genomes')
         self.ref_file()
         logging.info('Running bowtie2 build')
         strain_bowtie2_index_dict, self.strain_reference_abs_path_dict, self.strain_reference_dep_path_dict = \
-            VCFMethods.index_ref_genome(reference_link_path_dict=self.reference_link_path_dict,
+            VCFMethods.index_ref_genome(reference_strain_dict=self.reference_strain_dict,
                                         dependency_path=self.ref_path,
                                         logfile=self.logfile,
                                         reference_mapper='bowtie2')
         logging.info('Creating .fai index file of {ref}'.format(ref=self.ref_strain))
-        VCFMethods.faidx_ref_genome(ref_fasta=self.ref_fasta,
+        VCFMethods.faidx_ref_genome(reference_strain_dict=self.reference_strain_dict,
+                                    dependency_path=self.ref_path,
                                     logfile=self.logfile)
         logging.info('Running bowtie2 reference mapping')
         self.strain_sorted_bam_dict = VCFMethods.map_ref_genome(
@@ -80,14 +80,14 @@ class COWSNPhR(object):
 
     def ref_file(self):
         """
-        reference_link_path_dict: Dictionary of strain name: relative path to symlinked reference genome
-        :return:
+        reference_strain_dict: Dictionary of strain name: absolute path to symlinked reference genome
         """
         self.ref_fasta = glob(os.path.join(self.ref_path, '*.fasta'))[0]
         self.ref_strain = os.path.basename(os.path.splitext(self.ref_fasta)[0])
         for strain_name in self.strain_name_dict:
-            self.reference_link_path_dict[strain_name] = self.ref_fasta
+            self.reference_strain_dict[strain_name] = self.ref_fasta
             self.strain_consolidated_ref_dict[strain_name] = self.ref_strain
+            self.reference_strain_dict[self.ref_strain] = self.ref_fasta
 
     def snp_calling(self):
         """
@@ -135,11 +135,11 @@ class COWSNPhR(object):
     def load_snps(self):
         logging.info('Parsing gVCF files')
         self.strain_parsed_vcf_dict, self.strain_best_ref_dict, self.strain_best_ref_set_dict = \
-            VSNPTreeMethods.load_vcf(strain_vcf_dict=self.strain_vcf_dict)
+            TreeMethods.load_vcf(strain_vcf_dict=self.strain_vcf_dict)
         if self.debug:
             logging.info('Parsed gVCF summaries:')
             pass_dict, insertion_dict, deletion_dict = \
-                VSNPTreeMethods.summarise_gvcf_outputs(strain_parsed_vcf_dict=self.strain_parsed_vcf_dict)
+                TreeMethods.summarise_gvcf_outputs(strain_parsed_vcf_dict=self.strain_parsed_vcf_dict)
 
             logging.info('SNP bases: \n{results}'.format(
                 results='\n'.join(['{strain_name}: {pass_filter}'.format(strain_name=sn, pass_filter=ps)
@@ -152,9 +152,10 @@ class COWSNPhR(object):
                                    for sn, dc in deletion_dict.items()])))
         logging.info('Loading SNP positions')
         consolidated_ref_snp_positions, strain_snp_positions, self.ref_snp_positions = \
-            VSNPTreeMethods.load_gvcf_snp_positions(strain_parsed_vcf_dict=self.strain_parsed_vcf_dict,
-                                                    strain_consolidated_ref_dict=self.strain_consolidated_ref_dict)
-        group_positions_set = self.group_strains(strain_snp_positions=strain_snp_positions)
+            TreeMethods.load_gvcf_snp_positions(strain_parsed_vcf_dict=self.strain_parsed_vcf_dict,
+                                                strain_consolidated_ref_dict=self.strain_consolidated_ref_dict)
+        group_positions_set, self.strain_groups, self.strain_species_dict = \
+            TreeMethods.group_strains(strain_snp_positions=strain_snp_positions)
         if self.debug:
             logging.info('Number of SNPs per contig:')
             for species_code, group_dict in group_positions_set.items():
@@ -163,8 +164,8 @@ class COWSNPhR(object):
                         if pos_set:
                             print(ref_chrom, len(pos_set))
         logging.info("Performing SNP density filtering")
-        filtered_group_positions = VSNPTreeMethods.filter_snps(group_positions_set=group_positions_set,
-                                                               threshold=1)
+        filtered_group_positions = TreeMethods.density_filter_snps(group_positions_set=group_positions_set,
+                                                                   threshold=0)
         if self.debug:
             logging.info('Number of SNPs per contig following density filtering:')
             for species_code, group_dict in filtered_group_positions.items():
@@ -172,182 +173,105 @@ class COWSNPhR(object):
                     for ref_chrom, pos_set in ref_dict.items():
                         if pos_set:
                             print(ref_chrom, len(pos_set), sorted(list(pos_set)))
+        logging.info('Masking low complexity and repeat regions in reference genomes')
+        coords_dict = TreeMethods.mask_ref_genome(reference_strain_dict=self.reference_strain_dict,
+                                                  logfile=self.logfile)
+        logging.info('Extracting coordinates to mask')
+        mask_pos_dict = TreeMethods.determine_coordinates(strain_groups=self.strain_groups,
+                                                          coords_dict=coords_dict)
+        if self.maskfile:
+            logging.info('Loading masked regions from supplied maskfile {maskfile}'
+                         .format(maskfile=self.maskfile))
+            supplied_mask_pos_dict = TreeMethods.load_supplied_mask(strain_groups=self.strain_groups,
+                                                                    maskfile=self.maskfile)
+        else:
+            supplied_mask_pos_dict = dict()
+        logging.info('Filtering SNPs in masked regions')
+        filtered_masked_group_positions, filter_reasons = TreeMethods \
+            .filter_masked_snp_positions(group_positions_set=group_positions_set,
+                                         filtered_group_positions=filtered_group_positions,
+                                         mask_pos_dict=mask_pos_dict,
+                                         supplied_mask_pos_dict=supplied_mask_pos_dict)
+        if self.debug:
+            logging.info('Number of SNPs per contig following masking:')
+            for species_code, group_dict in filtered_masked_group_positions.items():
+                for group, ref_dict in group_dict.items():
+                    for ref_chrom, pos_set in ref_dict.items():
+                        if pos_set:
+                            print(ref_chrom, len(pos_set), sorted(list(pos_set)))
         logging.info('Loading SNP sequences')
         self.group_strain_snp_sequence, self.species_group_best_ref = \
-            VSNPTreeMethods.load_snp_sequence(strain_parsed_vcf_dict=self.strain_parsed_vcf_dict,
-                                              strain_consolidated_ref_dict=self.strain_consolidated_ref_dict,
-                                              group_positions_set=filtered_group_positions,
-                                              strain_groups=self.strain_groups,
-                                              strain_species_dict=self.strain_species_dict,
-                                              consolidated_ref_snp_positions=consolidated_ref_snp_positions,
-                                              iupac=self.iupac)
+            TreeMethods.load_snp_sequence(strain_parsed_vcf_dict=self.strain_parsed_vcf_dict,
+                                          strain_consolidated_ref_dict=self.strain_consolidated_ref_dict,
+                                          group_positions_set=filtered_masked_group_positions,
+                                          strain_groups=self.strain_groups,
+                                          strain_species_dict=self.strain_species_dict,
+                                          consolidated_ref_snp_positions=consolidated_ref_snp_positions,
+                                          iupac=self.iupac)
+        logging.info('Removing identical SNP positions from group')
+        ident_group_positions = \
+            TreeMethods.find_identical_calls(group_strain_snp_sequence=self.group_strain_snp_sequence)
         logging.info('Creating multi-FASTA files of core SNPs')
         group_folders, species_folders, self.group_fasta_dict = \
-            VSNPTreeMethods.create_multifasta(group_strain_snp_sequence=self.group_strain_snp_sequence,
-                                              fasta_path=self.fasta_path,
-                                              group_positions_set=filtered_group_positions,
-                                              nested=False)
+            TreeMethods.create_multifasta(group_strain_snp_sequence=self.group_strain_snp_sequence,
+                                          fasta_path=self.fasta_path,
+                                          group_positions_set=filtered_masked_group_positions,
+                                          strain_parsed_vcf_dict=self.strain_parsed_vcf_dict,
+                                          species_group_best_ref=self.species_group_best_ref,
+                                          reference_strain_dict=self.reference_strain_dict,
+                                          ident_group_positions=ident_group_positions,
+                                          nested=False)
         if self.debug:
             logging.info('Multi-FASTA alignment output:')
             for species_code, group_dict in self.group_fasta_dict.items():
                 for group, fasta_file in group_dict.items():
                     print(fasta_file)
-
-    def group_strains(self, strain_snp_positions):
-        """
-        Find all the SNP positions present in the strains in each group
-        :param strain_snp_positions: type DICT: Dictionary of strain name: ref chromosome: positions
-        :return: group_positions_set: Dictionary of species: group: reference chromosome name: positions
-        """
-        # Initialise a dictionary to store group-specific SNP positions for each reference chromosome
-        group_positions_set = dict()
-        # In order to re-use code, the species and group must be provided. Use generic values
-        species = 'species'
-        group = 'group'
-        for strain_name in strain_snp_positions:
-            self.strain_groups[strain_name] = [group]
-            self.strain_species_dict[strain_name] = species
-            for ref_chrom, pos_list in sorted(strain_snp_positions[strain_name].items()):
-                # Initialise the species key in the dictionary if required
-                if species not in group_positions_set:
-                    group_positions_set[species] = dict()
-                # Initialise the group key in the dictionary if required
-                if group not in group_positions_set[species]:
-                    group_positions_set[species][group] = dict()
-                if ref_chrom not in group_positions_set[species][group]:
-                    group_positions_set[species][group][ref_chrom] = set()
-                # Add the group-specific positions to the set
-                for pos in pos_list:
-                    group_positions_set[species][group][ref_chrom].add(pos)
-        return group_positions_set
+        logging.info('Summarising SNPs')
+        self.reference_strain_dict[self.ref_strain] = self.ref_fasta
+        TreeMethods.snp_summary(group_strain_snp_sequence=self.group_strain_snp_sequence,
+                                species_group_best_ref=self.species_group_best_ref,
+                                reference_strain_dict=self.reference_strain_dict,
+                                group_positions_set=group_positions_set,
+                                filter_reasons=filter_reasons,
+                                strain_parsed_vcf_dict=self.strain_parsed_vcf_dict,
+                                filtered_group_positions=filtered_group_positions,
+                                mask_pos_dict=mask_pos_dict,
+                                supplied_mask_pos_dict=supplied_mask_pos_dict,
+                                ident_group_positions=ident_group_positions,
+                                summary_path=self.summary_path)
 
     def phylogenetic_trees(self):
         """
         Create, parse, and copy phylogenetic trees
         """
         logging.info('Creating phylogenetic trees with FastTree')
-        species_group_trees = self.run_fasttree(group_fasta_dict=self.group_fasta_dict,
-                                                strain_consolidated_ref_dict=self.strain_consolidated_ref_dict,
-                                                strain_groups=self.strain_groups,
-                                                logfile=self.logfile)
+        species_group_trees = TreeMethods \
+            .run_fasttree(group_fasta_dict=self.group_fasta_dict,
+                          strain_consolidated_ref_dict=self.strain_consolidated_ref_dict,
+                          strain_groups=self.strain_groups,
+                          logfile=self.logfile)
         logging.info('Parsing strain order from phylogenetic trees')
-        self.species_group_order_dict = VSNPTreeMethods.parse_tree_order(species_group_trees=species_group_trees)
+        self.species_group_order_dict = TreeMethods.parse_tree_order(species_group_trees=species_group_trees)
         logging.info('Copying phylogenetic trees to {tree_path}'.format(tree_path=self.tree_path))
-        VSNPTreeMethods.copy_trees(species_group_trees=species_group_trees,
-                                   tree_path=self.tree_path)
-
-    @staticmethod
-    def run_fasttree(group_fasta_dict, strain_consolidated_ref_dict, strain_groups, logfile):
-        """
-        Create maximum-likelihood tree using FastTree
-        :param group_fasta_dict: type DICT: Dictionary of species code: group name: FASTA file created for the group
-        :param strain_consolidated_ref_dict: type DICT: Dictionary of strain name: extracted reference genome name
-        :param strain_groups: type DICT: Dictionary of strain name: list of group(s) for which the strain contains the
-        defining SNP
-        :param logfile: type STR: Absolute path to logfile basename
-        :return: species_group_trees: Dictionary of species code: group name: dictionary of tree type: absolute path
-        to FastTree output tree
-        """
-        # Initialise a dictionary to store the absolute paths of the output trees
-        species_group_trees = dict()
-        for species, group_dict in group_fasta_dict.items():
-            # Initialise the species key in the dictionary if necessary
-            if species not in species_group_trees:
-                species_group_trees[species] = dict()
-            for strain_name, best_ref in strain_consolidated_ref_dict.items():
-                for group, fasta_file in group_dict.items():
-                    if group in strain_groups[strain_name]:
-                        # Initialise the group key in the dictionary if necessary
-                        if group not in species_group_trees[species]:
-                            species_group_trees[species][group] = dict()
-                        # Set the path of the working dir
-                        output_dir = os.path.dirname(fasta_file)
-                        best_tree = os.path.join(output_dir,
-                                                 '{species}_{group}.tre'
-                                                 .format(species=species,
-                                                         group=group))
-                        species_group_trees[species][group]['best_tree'] = best_tree
-                        # Create a system call to FastTree
-                        fasttree_cmd = 'FastTree -gamma  -nt {fasta_file} > {tree_file}' \
-                            .format(fasta_file=fasta_file,
-                                    tree_file=best_tree)
-                        # Run the system call if the output best tree doesn't already exist
-                        if not os.path.isfile(best_tree):
-                            out, err = run_subprocess(command=fasttree_cmd)
-                            # Write the stdout and stderr to the main logfiles
-                            write_to_logfile(out=out,
-                                             err=err,
-                                             logfile=logfile)
-        return species_group_trees
+        TreeMethods.copy_trees(species_group_trees=species_group_trees,
+                               tree_path=self.tree_path)
 
     def annotate_snps(self):
         """
         Load GenBank files, and annotate SNPs
         """
         logging.info('Creating GenBank file for {ref} as required'.format(ref=self.ref_strain))
-        self.prokka(ref_path=self.ref_path,
-                    ref_strain=self.ref_strain,
-                    ref_fasta=self.ref_fasta)
+        TreeMethods.prokka(reference_strain_dict=self.reference_strain_dict,
+                           logfile=self.logfile)
         logging.info('Loading GenBank files for closest reference genomes')
-        self.load_genbank_file(reference_link_path_dict=self.reference_link_path_dict)
+        self.full_best_ref_gbk_dict = TreeMethods \
+            .load_genbank_file_single(reference_strain_dict=self.reference_strain_dict)
         logging.info('Annotating SNPs')
         self.species_group_annotated_snps_dict = \
-            VSNPTreeMethods.annotate_snps(group_strain_snp_sequence=self.group_strain_snp_sequence,
-                                          full_best_ref_gbk_dict=self.full_best_ref_gbk_dict,
-                                          strain_best_ref_set_dict=self.strain_best_ref_set_dict,
-                                          ref_snp_positions=self.ref_snp_positions)
-
-    def prokka(self, ref_path, ref_strain, ref_fasta):
-        """
-        Run prokka to annotate the reference genome
-        :param ref_path: type STR: Absolute path to folder containing reference file
-        :param ref_strain: type STR: Name of reference strain
-        :param ref_fasta: type STR: Absolute path to reference FASTA file
-        """
-        # Prepare command
-        cmd = 'prokka --force --outdir {output_folder} --prefix {prefix} {ref_file}' \
-            .format(output_folder=ref_path,
-                    prefix=ref_strain,
-                    ref_file=ref_fasta)
-        if not os.path.isfile(ref_fasta.replace('.fasta', '.gbk')):
-            out, err = run_subprocess(command=cmd)
-            write_to_logfile(out='{cmd}\n{out}'.format(cmd=cmd,
-                                                       out=out),
-                             err=err,
-                             logfile=self.logfile)
-
-    def load_genbank_file(self, reference_link_path_dict):
-        """
-        Use SeqIO to parse the best reference genome GenBank file for annotating SNP locations
-        :param reference_link_path_dict: type DICT: Dictionary of strain name: relative path to reference genome
-        dependency folder
-        :return: full_best_ref_gbk_dict: Dictionary of best ref: ref position: SeqIO parsed GenBank file-sourced
-        records from closest reference genome for that position
-        """
-        # Initialise a dictionary to store the SeqIO parsed GenBank files
-        best_ref_gbk_dict = dict()
-        for strain_name, best_ref_file in reference_link_path_dict.items():
-            best_ref_path = os.path.dirname(best_ref_file)
-            best_ref = os.path.splitext(best_ref_file)[0]
-            gbk_file = glob(os.path.join(best_ref_path, '{br}*.gbk'.format(br=best_ref)))[0]
-            # Only parse the file if it has not already been parsed
-            if best_ref not in best_ref_gbk_dict:
-                # Use SeqIO to first parse the GenBank file, and convert the parsed object to a dictionary
-                gbk_dict = SeqIO.to_dict(SeqIO.parse(gbk_file, "genbank"))
-                # Add the GenBank dictionary to the best reference-specific dictionary
-                best_ref_gbk_dict[best_ref] = gbk_dict
-        for best_ref, gbk_dict in best_ref_gbk_dict.items():
-            self.full_best_ref_gbk_dict[best_ref] = dict()
-            for ref_name, record in gbk_dict.items():
-                if record.name not in self.full_best_ref_gbk_dict:
-                    self.full_best_ref_gbk_dict[record.name] = dict()
-                for feature in record.features:
-                    # Ignore the full record
-                    if feature.type != 'source':
-                        # Iterate through the full length of the feature, and add each position to the dictionary
-                        for i in range(int(feature.location.start), int(feature.location.end) + 1):
-                            self.full_best_ref_gbk_dict[record.name][i] = feature
-        return self.full_best_ref_gbk_dict
+            TreeMethods.annotate_snps(group_strain_snp_sequence=self.group_strain_snp_sequence,
+                                      full_best_ref_gbk_dict=self.full_best_ref_gbk_dict,
+                                      strain_best_ref_set_dict=self.strain_best_ref_set_dict,
+                                      ref_snp_positions=self.ref_snp_positions)
 
     def order_snps(self):
         """
@@ -355,30 +279,29 @@ class COWSNPhR(object):
         """
         logging.info('Counting prevalence of SNPs')
         species_group_snp_num_dict = \
-            VSNPTreeMethods.determine_snp_number(group_strain_snp_sequence=self.group_strain_snp_sequence,
-                                                 species_group_best_ref=self.species_group_best_ref)
+            TreeMethods.determine_snp_number(group_strain_snp_sequence=self.group_strain_snp_sequence,
+                                             species_group_best_ref=self.species_group_best_ref)
         if self.debug:
             logging.info('SNP prevalence')
             for ref_chrom, pos_dict in species_group_snp_num_dict['species']['group'].items():
                 print(ref_chrom, pos_dict)
         logging.info('Determining amino acid sequence at SNP locations')
-        self.reference_link_path_dict[self.ref_strain] = self.ref_fasta
         self.translated_snp_residue_dict, self.ref_translated_snp_residue_dict = \
-            VSNPTreeMethods.determine_aa_sequence(
+            TreeMethods.determine_aa_sequence(
                 group_strain_snp_sequence=self.group_strain_snp_sequence,
                 species_group_best_ref=self.species_group_best_ref,
                 strain_parsed_vcf_dict=self.strain_parsed_vcf_dict,
                 species_group_annotated_snps_dict=self.species_group_annotated_snps_dict,
-                reference_link_path_dict=self.reference_link_path_dict,
+                reference_strain_dict=self.reference_strain_dict,
                 species_group_snp_num_dict=species_group_snp_num_dict,
                 iupac=self.iupac)
         logging.info('Creating SNP matrix')
-        VSNPTreeMethods.create_snp_matrix(species_group_best_ref=self.species_group_best_ref,
-                                          group_strain_snp_sequence=self.group_strain_snp_sequence,
-                                          matrix_path=self.matrix_path)
+        TreeMethods.create_snp_matrix(species_group_best_ref=self.species_group_best_ref,
+                                      group_strain_snp_sequence=self.group_strain_snp_sequence,
+                                      matrix_path=self.matrix_path)
         logging.info('Ranking SNPs based on prevalence')
         species_group_snp_rank, self.species_group_num_snps = \
-            VSNPTreeMethods.rank_snps(species_group_snp_num_dict=species_group_snp_num_dict)
+            TreeMethods.rank_snps(species_group_snp_num_dict=species_group_snp_num_dict)
         if self.debug:
             logging.info('Ranked SNPs')
             for num_snps, ref_dict in sorted(species_group_snp_rank['species']['group'].items(), reverse=True):
@@ -386,10 +309,10 @@ class COWSNPhR(object):
                     print(num_snps, ref_chrom, pos_dict)
         logging.info('Sorting SNPs based on order of strains in phylogenetic trees')
         self.species_group_sorted_snps = \
-            VSNPTreeMethods.sort_snps(species_group_order_dict=self.species_group_order_dict,
-                                      species_group_snp_rank=species_group_snp_rank,
-                                      species_group_best_ref=self.species_group_best_ref,
-                                      group_strain_snp_sequence=self.group_strain_snp_sequence)
+            TreeMethods.sort_snps(species_group_order_dict=self.species_group_order_dict,
+                                  species_group_snp_rank=species_group_snp_rank,
+                                  species_group_best_ref=self.species_group_best_ref,
+                                  group_strain_snp_sequence=self.group_strain_snp_sequence)
         if self.debug:
             logging.info('Sorted SNPs')
             for num_snps, ref_dict in self.species_group_sorted_snps['species']['group'].items():
@@ -401,29 +324,29 @@ class COWSNPhR(object):
         Create the summary report of the analyses
         """
         logging.info('Creating summary tables')
-        VSNPTreeMethods.create_summary_table(species_group_sorted_snps=self.species_group_sorted_snps,
-                                             species_group_order_dict=self.species_group_order_dict,
-                                             species_group_best_ref=self.species_group_best_ref,
-                                             group_strain_snp_sequence=self.group_strain_snp_sequence,
-                                             species_group_annotated_snps_dict=self.species_group_annotated_snps_dict,
-                                             translated_snp_residue_dict=self.translated_snp_residue_dict,
-                                             ref_translated_snp_residue_dict=self.ref_translated_snp_residue_dict,
-                                             species_group_num_snps=self.species_group_num_snps,
-                                             summary_path=self.summary_path,
-                                             molecule='nt')
+        TreeMethods.create_summary_table(species_group_sorted_snps=self.species_group_sorted_snps,
+                                         species_group_order_dict=self.species_group_order_dict,
+                                         species_group_best_ref=self.species_group_best_ref,
+                                         group_strain_snp_sequence=self.group_strain_snp_sequence,
+                                         species_group_annotated_snps_dict=self.species_group_annotated_snps_dict,
+                                         translated_snp_residue_dict=self.translated_snp_residue_dict,
+                                         ref_translated_snp_residue_dict=self.ref_translated_snp_residue_dict,
+                                         species_group_num_snps=self.species_group_num_snps,
+                                         summary_path=self.summary_path,
+                                         molecule='nt')
         # Amino acid summary table
-        VSNPTreeMethods.create_summary_table(species_group_sorted_snps=self.species_group_sorted_snps,
-                                             species_group_order_dict=self.species_group_order_dict,
-                                             species_group_best_ref=self.species_group_best_ref,
-                                             group_strain_snp_sequence=self.group_strain_snp_sequence,
-                                             species_group_annotated_snps_dict=self.species_group_annotated_snps_dict,
-                                             translated_snp_residue_dict=self.translated_snp_residue_dict,
-                                             ref_translated_snp_residue_dict=self.ref_translated_snp_residue_dict,
-                                             species_group_num_snps=self.species_group_num_snps,
-                                             summary_path=self.summary_path,
-                                             molecule='aa')
+        TreeMethods.create_summary_table(species_group_sorted_snps=self.species_group_sorted_snps,
+                                         species_group_order_dict=self.species_group_order_dict,
+                                         species_group_best_ref=self.species_group_best_ref,
+                                         group_strain_snp_sequence=self.group_strain_snp_sequence,
+                                         species_group_annotated_snps_dict=self.species_group_annotated_snps_dict,
+                                         translated_snp_residue_dict=self.translated_snp_residue_dict,
+                                         ref_translated_snp_residue_dict=self.ref_translated_snp_residue_dict,
+                                         species_group_num_snps=self.species_group_num_snps,
+                                         summary_path=self.summary_path,
+                                         molecule='aa')
 
-    def __init__(self, seq_path, ref_path, threads, working_path, debug):
+    def __init__(self, seq_path, ref_path, threads, working_path, maskfile, gpu, debug):
         # Determine the path in which the sequence files are located. Allow for ~ expansion
         if seq_path.startswith('~'):
             self.seq_path = os.path.abspath(os.path.expanduser(os.path.join(seq_path)))
@@ -449,6 +372,27 @@ class COWSNPhR(object):
             self.working_path = os.path.abspath(os.path.join(working_path))
         else:
             self.working_path = str()
+        if maskfile:
+            if maskfile.startswith('~'):
+                self.maskfile = os.path.abspath(os.path.expanduser(os.path.join(maskfile)))
+                assert os.path.isfile(self.maskfile), 'Cannot locate supplied maskfile {maskfile}'.format(
+                    maskfile=maskfile)
+            elif maskfile.startswith('/'):
+                self.maskfile = os.path.abspath(os.path.join(maskfile))
+                assert os.path.isfile(self.maskfile), 'Cannot locate supplied maskfile {maskfile}' \
+                    .format(maskfile=maskfile)
+            elif '/' in maskfile:
+                self.maskfile = os.path.join(os.path.dirname(self.ref_path), maskfile)
+                assert os.path.isfile(self.maskfile), 'Cannot locate supplied maskfile {maskfile} {path}'.format(
+                    maskfile=maskfile,
+                    path=os.path.join(os.path.dirname(self.ref_path), maskfile))
+            else:
+                self.maskfile = os.path.join(self.ref_path, maskfile)
+                assert os.path.isfile(self.maskfile), 'Cannot locate supplied maskfile {maskfile} {ref_path}'.format(
+                    maskfile=maskfile,
+                    ref_path=self.ref_path)
+        else:
+            self.maskfile = str()
         self.home = str(Path.home())
         self.dependency_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'dependencies')
         self.fasta_path = os.path.join(self.seq_path, 'alignments')
@@ -479,7 +423,7 @@ class COWSNPhR(object):
         self.strain_reference_abs_path_dict = dict()
         self.strain_reference_dep_path_dict = dict()
         self.strain_sorted_bam_dict = dict()
-        self.reference_link_path_dict = dict()
+        self.reference_strain_dict = dict()
         self.strain_vcf_dict = dict()
         self.strain_parsed_vcf_dict = dict()
         self.strain_best_ref_dict = dict()
@@ -497,12 +441,15 @@ class COWSNPhR(object):
         self.full_best_ref_gbk_dict = dict()
         self.species_group_num_snps = dict()
         self.species_group_sorted_snps = dict()
-        self.deepvariant_version = '0.10.0'
+        if gpu:
+            self.deepvariant_version = '1.0.0-gpu'
+        else:
+            self.deepvariant_version = '1.0.0'
 
 
 def get_version():
     try:
-        version = 'COWSNPhR {version}'.format(version=pkg_resources.get_distribution('vsnpdev').version)
+        version = 'COWSNPhR {version}'.format(version=pkg_resources.get_distribution('cowsnphr').version)
     except pkg_resources.DistributionNotFound:
         version = 'COWSNPhR (Unknown version)'
     return version
@@ -532,11 +479,26 @@ def main():
                              'need to provide the path to the drive e.g. /mnt/nas. This is necessary for the docker '
                              'calls to deepvariant. An additional volume will be mounted in the docker container: '
                              'e.g. -v /mnt/nas:/mnt/nas')
+    parser.add_argument('-m', '--maskfile',
+                        type=str,
+                        default=str(),
+                        help='Supply a BED-formatted file with regions to mask. Generally, the format is: \n'
+                             'chrom\tchromStart\tchromEnd\n'
+                             'where chrom is the name of the reference chromosome; chromStart is the Start position '
+                             'of the feature in standard chromosomal coordinates (i.e. first base is 0); chromEnd is '
+                             'the End position of the feature in standard chromosomal coordinates')
+    parser.add_argument('-g', '--gpu',
+                        action='store_true',
+                        help='Enable this flag if your workstation has a GPU compatible with deepvariant. '
+                             'The program will use the deepvariant-gpu Docker image instead of the regular deepvariant '
+                             'image. Note that since I do not have a setup with a GPU, this is COMPLETELY UNTESTED!')
     args = parser.parse_args()
     cowsnphr = COWSNPhR(seq_path=args.sequence_path,
                         ref_path=args.reference_path,
                         threads=args.threads,
                         working_path=args.working_path,
+                        maskfile=args.maskfile,
+                        gpu=args.gpu,
                         debug=args.debug)
     cowsnphr.main()
 

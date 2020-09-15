@@ -16,9 +16,9 @@ before_install:
   - conda config --add channels dranew
   - conda config --add channels conda-forge
   - conda config --add channels bioconda
-  - conda install -c olcbioinformatics vsnp
-  - docker pull gcr.io/deepvariant-docker/deepvariant:0.8.0
+  - conda install -c olcbioinformatics cowsnphr
+  - docker pull gcr.io/deepvariant-docker/deepvariant:1.0.0
 
 script:
-  - python -m pytest tests/test_vsnp_vcf.py -s -vv --maxfail=1
-  - python -m pytest tests/test_vsnp_tree.py -s -vv --maxfail=1 
+  - python -m pytest tests/test_vcf.py -s -vv --maxfail=1
+  - python -m pytest tests/test_tree.py -s -vv --maxfail=1 

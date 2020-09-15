@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-from vsnp.vsnp_tree_run import VSNPTree
-from vsnp.vsnp_vcf_run import VCF
+from cowsnphr.tree_run import Tree
+from cowsnphr.vcf_run import VCF
 from argparse import ArgumentParser, RawTextHelpFormatter
 import multiprocessing
 import os
 
 __author__ = 'adamkoziol'
-__version__ = '0.0.21'
+__version__ = '0.0.30'
 
 
 def vsnp(args):
@@ -20,11 +20,11 @@ def vsnp(args):
                    variant_caller=args.variantcaller,
                    matching_hashes=args.matchinghashes)
     vsnp_vcf.main()
-    vsnp_tree = VSNPTree(path=os.path.join(args.path, 'vcf_files'),
-                         threads=args.threads,
-                         debug=args.debug,
-                         filter_positions=args.filterpositions,
-                         variant_caller=args.variantcaller)
+    vsnp_tree = Tree(path=os.path.join(args.path, 'vcf_files'),
+                     threads=args.threads,
+                     debug=args.debug,
+                     filter_positions=args.filterpositions,
+                     variant_caller=args.variantcaller)
     vsnp_tree.main()
 
 
@@ -45,11 +45,11 @@ def tree(args):
     """
     Phylogenetic tree creation
     """
-    vsnp_tree = VSNPTree(path=args.path,
-                         threads=args.threads,
-                         debug=args.debug,
-                         filter_positions=args.filterpositions,
-                         variant_caller=args.variantcaller)
+    vsnp_tree = Tree(path=args.path,
+                     threads=args.threads,
+                     debug=args.debug,
+                     filter_positions=args.filterpositions,
+                     variant_caller=args.variantcaller)
     vsnp_tree.main()
 
 
