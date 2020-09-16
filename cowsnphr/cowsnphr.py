@@ -53,12 +53,12 @@ class COWSNPhR(object):
         self.ref_file()
         logging.info('Running bowtie2 build')
         strain_bowtie2_index_dict, self.strain_reference_abs_path_dict, self.strain_reference_dep_path_dict = \
-            VCFMethods.index_ref_genome(reference_strain_dict=self.reference_strain_dict,
+            VCFMethods.index_ref_genome(reference_link_path_dict=self.reference_strain_dict,
                                         dependency_path=self.ref_path,
                                         logfile=self.logfile,
                                         reference_mapper='bowtie2')
         logging.info('Creating .fai index file of {ref}'.format(ref=self.ref_strain))
-        VCFMethods.faidx_ref_genome(reference_strain_dict=self.reference_strain_dict,
+        VCFMethods.faidx_ref_genome(reference_link_path_dict=self.reference_strain_dict,
                                     dependency_path=self.ref_path,
                                     logfile=self.logfile)
         logging.info('Running bowtie2 reference mapping')

@@ -1,0 +1,9 @@
+site_name: COWSNPhr
+site_url: https://olc-bioinformatics.github.io/COWSNPhR
+site_description: CFIA OLN Workflow for Single Nucleotide Phylogeny Reporting
+repo_url: https://github.com/OLC-Bioinformatics/COWSNPhR
+
+nav:
+- Home: 'index.md'
+- Installation: 'install.md'
+- Usage: 'usage.md'
