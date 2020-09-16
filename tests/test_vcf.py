@@ -53,9 +53,7 @@ bowtie2_sorted_bam_dict = dict()
 strain_sorted_bam_dict = dict()
 strain_unmapped_reads_dict = dict()
 strain_skesa_output_fasta_dict = dict()
-strain_qualimap_report_dict = dict()
-strain_qualimap_outputs_dict = dict()
-strain_unmapped_contigs_dict = dict()
+quast_report_dict = dict()
 strain_examples_dict = dict()
 strain_variant_path_dict = dict()
 strain_call_variants_dict = dict()
@@ -337,14 +335,32 @@ def test_skesa_assembled_unmapped():
         strain_name_dict=strain_name_dict,
         threads=threads,
         logfile=logfile)
-    assert os.path.getsize(strain_skesa_output_fasta_dict['B13-0234']) == 0
+    assert os.path.getsize(strain_skesa_output_fasta_dict['13-1941']) > 100
 
 
-def test_number_unmapped_contigs():
-    global strain_unmapped_contigs_dict
-    strain_unmapped_contigs_dict = VCFMethods.assembly_stats(
-        strain_skesa_output_fasta_dict=strain_skesa_output_fasta_dict)
-    assert strain_unmapped_contigs_dict['B13-0234'] == 0
+def test_quast():
+    global quast_report_dict
+    quast_report_dict = VCFMethods.quast(strain_skesa_output_fasta_dict=strain_skesa_output_fasta_dict,
+                                         strain_unmapped_reads_dict=strain_unmapped_reads_dict,
+                                         strain_sorted_bam_dict=strain_sorted_bam_dict,
+                                         threads=threads,
+                                         logfile=logfile)
+
+    assembly_file = strain_skesa_output_fasta_dict['13-1941']
+    output_dir = os.path.dirname(assembly_file)
+    quast_report = os.path.join(output_dir, 'report.tsv')
+    assert os.path.isfile(quast_report)
+
+
+def test_parse_quast_report():
+    VCFMethods.parse_quast_report(quast_report_dict=quast_report_dict,
+                                  report_path=report_path)
+    assert os.path.isfile(os.path.join(report_path, 'assembly_report.tsv'))
+    with open(os.path.join(report_path, 'assembly_report.tsv'), 'r') as quast:
+        header = quast.readline().split('\t')
+        data = quast.readline().split('\t')
+    assert header[0] == 'Assembly'
+    assert data[1] == '37'
 
 
 def test_samtools_index():
@@ -354,21 +370,6 @@ def test_samtools_index():
                               logfile=logfile)
     for strain_name, sorted_bam in strain_sorted_bam_dict.items():
         assert os.path.isfile(sorted_bam + '.bai')
-
-
-def test_qualimap():
-    global strain_qualimap_report_dict
-    strain_qualimap_report_dict = VCFMethods.run_qualimap(strain_sorted_bam_dict=strain_sorted_bam_dict,
-                                                          strain_name_dict=strain_name_dict,
-                                                          logfile=logfile)
-    for strain_name, qualimap_report in strain_qualimap_report_dict.items():
-        assert os.path.isfile(qualimap_report)
-
-
-def test_qualimap_parse():
-    global strain_qualimap_outputs_dict
-    strain_qualimap_outputs_dict = VCFMethods.parse_qualimap(strain_qualimap_report_dict=strain_qualimap_report_dict)
-    assert int(strain_qualimap_outputs_dict['13-1950']['MappedReads'].split('(')[0]) >= 370000
 
 
 def test_deepvariant_make_examples():
@@ -426,16 +427,6 @@ def test_deepvariant_postprocess_variants():
     assert os.path.getsize(strain_vcf_dict['13-1941']) > 100
     with pytest.raises(KeyError):
         assert strain_vcf_dict['NC_002695']
-
-
-def test_regions():
-    global strain_ref_regions_dict
-    strain_ref_regions_dict = VCFMethods.reference_regions(
-        strain_reference_abs_path_dict=strain_reference_abs_path_dict,
-        logfile=logfile)
-    for strain_name, ref_regions_file in strain_ref_regions_dict.items():
-        assert os.path.isfile(ref_regions_file)
-        assert os.path.getsize(ref_regions_file) > 0
 
 
 def test_copy_test_vcf_files():
@@ -521,14 +512,12 @@ def test_remove_logs():
         os.remove(log)
 
 
-def test_remove_mlst_logs():
-    logs = glob(os.path.join(dependency_path, 'brucella', 'MLST', '*.log'))
-    for log in logs:
-        os.remove(log)
-
-
 def test_remove_vcf_path():
     shutil.rmtree(vcf_path)
+
+
+def test_remove_report_folder():
+    shutil.rmtree(report_path)
 
 
 def test_remove_working_dir():

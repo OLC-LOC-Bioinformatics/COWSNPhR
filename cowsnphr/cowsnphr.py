@@ -77,6 +77,30 @@ class COWSNPhR(object):
                                   strain_name_dict=self.strain_name_dict,
                                   threads=self.threads,
                                   logfile=self.logfile)
+        logging.info('Extracting unmapped reads')
+        strain_unmapped_reads_dict = VCFMethods.extract_unmapped_reads(
+            strain_sorted_bam_dict=self.strain_sorted_bam_dict,
+            strain_name_dict=self.strain_name_dict,
+            threads=self.threads,
+            logfile=self.logfile)
+        logging.info('Attempting to assemble unmapped reads with SKESA')
+        strain_skesa_output_fasta_dict = VCFMethods.assemble_unmapped_reads(
+            strain_unmapped_reads_dict=strain_unmapped_reads_dict,
+            strain_name_dict=self.strain_name_dict,
+            threads=self.threads,
+            logfile=self.logfile)
+        logging.debug('SKESA assemblies: \n{files}'.format(
+            files='\n'.join(['{strain_name}: {assembly}'.format(strain_name=sn, assembly=af)
+                             for sn, af in strain_skesa_output_fasta_dict.items()])))
+        logging.info('Running Quast on SKESA assemblies')
+        quast_report_dict = VCFMethods \
+            .quast(strain_skesa_output_fasta_dict=strain_skesa_output_fasta_dict,
+                   strain_unmapped_reads_dict=strain_unmapped_reads_dict,
+                   strain_sorted_bam_dict=self.strain_sorted_bam_dict,
+                   threads=self.threads,
+                   logfile=self.logfile)
+        VCFMethods.parse_quast_report(quast_report_dict=quast_report_dict,
+                                      report_path=self.report_path)
 
     def ref_file(self):
         """

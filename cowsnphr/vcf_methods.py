@@ -506,7 +506,7 @@ class VCFMethods(object):
                 else:
                     # bwa mem mapping. Set the read group header to include the sample name in the ID and SM fields
                     map_cmd = 'bwa mem -M -R \"@RG\\tID:{sn}\\tSM:{sn}\\tPL:ILLUMINA\\tPI:250\" -t {threads} ' \
-                              '{abs_ref_link} {fastq}'\
+                              '{abs_ref_link} {fastq}' \
                         .format(sn=strain_name,
                                 fastq=' '.join(fastq_files),
                                 threads=threads,
@@ -517,7 +517,7 @@ class VCFMethods(object):
                 # samtools sort
                 map_cmd += ' | samtools view -@ {threads} -h -bT {abs_ref_link} -' \
                            ' | samtools rmdup - -S -' \
-                           ' | samtools sort - -@ {threads} -o {sorted_bam}'\
+                           ' | samtools sort - -@ {threads} -o {sorted_bam}' \
                     .format(threads=threads,
                             abs_ref_link=reference_index,
                             sorted_bam=sorted_bam)
@@ -611,28 +611,67 @@ class VCFMethods(object):
         return strain_skesa_output_fasta_dict
 
     @staticmethod
-    def assembly_stats(strain_skesa_output_fasta_dict):
+    def quast(strain_skesa_output_fasta_dict, strain_unmapped_reads_dict, strain_sorted_bam_dict, threads, logfile):
         """
-        Use SeqIO to count the number of contigs that could be created from the unmapped reads
-        :param strain_skesa_output_fasta_dict: type DICT: Dictionary of strain name: absolute path to skesa-created
-        contigs FASTA file
-        :return: strain_unmapped_contigs_dict: Dictionary of strain name: number of contigs in skesa-created contigs
-        FASTA file
+        Run quast on the samples
+        :param strain_skesa_output_fasta_dict: type DICT: Dictionary of strain name: absolute path to SKESA assembly
+        :param strain_unmapped_reads_dict: type DICT: Dictionary of strain name: absolute path to unmapped FASTQ reads
+        :param strain_sorted_bam_dict: type DICT: Dictionary of strain name: absolute path to sorted BAM file
+        :param threads: type INT: Number of threads to request for the analyses
+        :param logfile: type STR: Absolute path to the logfile basename
+        :return: quast_report_dict: Dictionary of strain name: absolute path to quast report
         """
-        # Create a dictionary to store the number of contigs in the FASTA file
-        strain_unmapped_contigs_dict = dict()
+        quast_report_dict = dict()
         for strain_name, assembly_file in strain_skesa_output_fasta_dict.items():
-            # Initialise the strain-specific number of contigs as 0
-            strain_unmapped_contigs_dict[strain_name] = 0
-            # Ensure that the assembly file was created
-            if os.path.isfile(assembly_file):
-                # Check to see if the file is empty before using SeqIO to parse it
-                if os.path.getsize(assembly_file) > 0:
-                    # Use SeqIO to iterate through the FASTA file.
-                    for _ in SeqIO.parse(assembly_file, 'fasta'):
-                        # Increment the number of contigs for each sequence encountered
-                        strain_unmapped_contigs_dict[strain_name] += 1
-        return strain_unmapped_contigs_dict
+            output_dir = os.path.dirname(assembly_file)
+            quast_report = os.path.join(output_dir, 'transposed_report.tsv')
+            quast_report_dict[strain_name] = quast_report
+            # Create the system call to quast. --debug is specified, as certain temporary files are either used
+            # for downstream analyses (BAM file), or parsed (insert size estimation)
+            cmd = 'quast --single {single} --ref-bam {bam} -t {threads} --k-mer-stats --circos ' \
+                  '--conserved-genes-finding -o {outputdir} --debug {assembly}' \
+                .format(single=strain_unmapped_reads_dict[strain_name],
+                        bam=strain_sorted_bam_dict[strain_name],
+                        threads=threads,
+                        outputdir=os.path.dirname(assembly_file),
+                        assembly=assembly_file
+                        )
+            # Run the quast system call if the final quast report doesn't already exist
+            if not os.path.isfile(quast_report):
+                out, err = run_subprocess(cmd)
+                # Write the appropriate information to the logfile
+                write_to_logfile(out='{cmd}\n{out}'.format(cmd=cmd,
+                                                           out=out),
+                                 err=err,
+                                 logfile=logfile)
+        return quast_report_dict
+
+    @staticmethod
+    def parse_quast_report(quast_report_dict, report_path):
+        """
+        Parse the quast reports for each assembly, and create a combined report in the supplied report path
+        :param quast_report_dict: type DICT: Dictionary of strain name: absolute path to quast report
+        :param report_path: type STR: Absolute path to directory in which reports are to be created
+        """
+        # Initialise strings to store the header and body information from the quast reports
+        header = str()
+        body = str()
+        for sample_name, quast_report in quast_report_dict.items():
+            if os.path.isfile(quast_report):
+                # Read in the report
+                with open(quast_report, 'r') as report:
+                    # Populate the header string if it doesn't already exist
+                    if not header:
+                        header = report.readline()
+                    # Add the report data to the string
+                    for line in report:
+                        body += line
+        # Create the report path as required
+        make_path(report_path)
+        # Write the header and body strings to the combined report
+        with open(os.path.join(report_path, 'assembly_report.tsv'), 'w') as quast:
+            quast.write(header)
+            quast.write(body)
 
     @staticmethod
     def samtools_index(strain_sorted_bam_dict, strain_name_dict, threads, logfile):
@@ -658,92 +697,6 @@ class VCFMethods(object):
                                  logfile=logfile,
                                  samplelog=os.path.join(strain_folder, 'log.out'),
                                  sampleerr=os.path.join(strain_folder, 'log.err'))
-
-    @staticmethod
-    def run_qualimap(strain_sorted_bam_dict, strain_name_dict, logfile):
-        """
-        Run qualimap on the sorted BAM files
-        :param strain_sorted_bam_dict: type DICT: Dictionary of strain name: absolute path of sorted BAM file
-        :param strain_name_dict: type DICT: Dictionary of strain name: absolute path of strain-specific working folder
-        :param logfile: type STR: Absolute path of logfile basename
-        :return: strain_qualimap_report_dict: Dictionary of strain name: absolute path of qualimap report
-        """
-        # Initialise the dictionary to store the absolute path of the qualimap report
-        strain_qualimap_report_dict = dict()
-        for strain_name, sorted_bam in strain_sorted_bam_dict.items():
-            # Extract the absolute path of the working directory from the dictionary
-            strain_folder = strain_name_dict[strain_name]
-            # Set the path, and create a folder in which the qualimap results are to be stored
-            qualimap_output_dir = os.path.join(strain_folder, 'qualimap')
-            make_path(qualimap_output_dir)
-            # Set the absolute path of the qualimap report to be parsed
-            qualimap_report = os.path.join(qualimap_output_dir, 'genome_results.txt')
-            # Create the qualimap system call
-            qualimap_cmd = 'qualimap bamqc -bam {sorted_bam} -outdir {qualimap_out_dir}' \
-                .format(sorted_bam=sorted_bam,
-                        qualimap_out_dir=qualimap_output_dir)
-            # Run the system call if the qualimap report does not exist
-            if not os.path.isfile(qualimap_report):
-                out, err = run_subprocess(qualimap_cmd)
-                # Write STDOUT and STDERR to the logfile
-                write_to_logfile(out=out,
-                                 err=err,
-                                 logfile=logfile,
-                                 samplelog=os.path.join(strain_folder, 'log.out'),
-                                 sampleerr=os.path.join(strain_folder, 'log.err'))
-            # Populate the dictionary with the path to the report
-            strain_qualimap_report_dict[strain_name] = qualimap_report
-        return strain_qualimap_report_dict
-
-    @staticmethod
-    def parse_qualimap(strain_qualimap_report_dict):
-        """
-        Create a dictionary of the key: value pairs in the qualimap report
-        :param strain_qualimap_report_dict: type DICT: Dictionary of strain name: absolute path of qualimap report
-        :return: strain_qualimap_outputs_dict: Dictionary of strain name: dictionary of key: value from qualimap report
-        """
-        # Initialise a dictionary to store the qualimap outputs in dictionary format
-        strain_qualimap_outputs_dict = dict()
-        for strain_name, qualimap_report in strain_qualimap_report_dict.items():
-            # Initialise a dictionary to hold the qualimap results - will be overwritten for each strain
-            qualimap_dict = dict()
-            with open(qualimap_report, 'r') as report:
-                for line in report:
-                    # Sanitise the keys and values using self.analyze
-                    key, value = VCFMethods.analyze(line)
-                    # If the keys and values exist, enter them into the dictionary
-                    if (key, value) != (None, None):
-                        # Populate the dictionary with the sanitised key: value pair. Strip of the 'X' from the depth
-                        # values
-                        qualimap_dict[key] = value.rstrip('X')
-            # Populate the dictionary with the sanitised outputs
-            strain_qualimap_outputs_dict[strain_name] = qualimap_dict
-        return strain_qualimap_outputs_dict
-
-    @staticmethod
-    def analyze(line):
-        """
-        Parse lines in qualimap reports. Split lines into key, value pairs, and sanitise lines, so that these pairs
-        can be added to a dictionary
-        :param line: type STR: Current line from a qualimap report
-        :return: Sanitised key: value pair
-        """
-        # Split lines on ' = '
-        if ' = ' in line:
-            key, value = line.split(' = ')
-            # Replace occurrences of: "number of ", "'", and " " with empty strings
-            key = key.replace('number of ', "").replace("'", "").title().replace(" ", "")
-            # Remove commas
-            value = value.replace(",", "").replace(" ", "").rstrip()
-        # Extract the coverage data at a 1X threshold from the report
-        elif 'coverageData >= 1X' in line:
-            data = line.split()
-            key = 'genome_coverage'
-            value = data[3]
-        # If '=' is absent, we are not interested in this line. Set the key and value to None
-        else:
-            key, value = None, None
-        return key, value
 
     @staticmethod
     def deepvariant_make_examples(strain_sorted_bam_dict, strain_name_dict, strain_reference_abs_path_dict, vcf_path,
@@ -992,7 +945,7 @@ class VCFMethods(object):
                                    ' /opt/deepvariant/bin/postprocess_variants --ref {ref} ' \
                                    '--nonvariant_site_tfrecord_path {gvcf_records} ' \
                                    '--infile {call_variants_output} --outfile {vcf_file} ' \
-                                   '--gvcf_outfile {gvcf_file}'\
+                                   '--gvcf_outfile {gvcf_file}' \
             .format(volumes=volumes,
                     dvv=deepvariant_version,
                     ref=ref_genome,
@@ -1037,7 +990,7 @@ class VCFMethods(object):
                                 subline = subline.decode()
                                 # Split the line based on the columns
                                 ref_genome, pos, id_stat, ref, alt_string, qual, filter_stat, info_string, \
-                                    format_stat, strain = subline.split('\t')
+                                format_stat, strain = subline.split('\t')
                                 # Initialise a string to hold the clean 'alt_string'
                                 alt = str()
                                 # Matches will have the following alt_string format: <*>. For SNP calls, the alt_string
@@ -1061,91 +1014,6 @@ class VCFMethods(object):
                                     # Add the passing SNP to the dictionary
                                     strain_num_high_quality_snps_dict[strain_name] += 1
         return strain_num_high_quality_snps_dict
-
-    @staticmethod
-    def reference_regions(strain_reference_abs_path_dict, logfile, size=100000):
-        """
-        Create a regions file to be used by freebayes-parallel. This file is the base pair position of the reference
-        genome in regions of a defined size (in this case 100000). The file contains the contig name: bp position range
-        NC_002945.4:0-100000
-        NC_002945.4:100000-200000
-        :param strain_reference_abs_path_dict: type DICT: Dictionary of strain name: absolute path of reference genome
-        :param logfile: type STR: Absolute path to logfile basename
-        :param size: type INT: Size of regions to create from reference genome
-        :return: strain_ref_regions_dict: Dictionary of strain name: regions file
-        """
-        # Initialise a dictionary to store the absolute path of the regions file
-        strain_ref_regions_dict = dict()
-        for strain_name, ref_genome in strain_reference_abs_path_dict.items():
-            # Set the absolute path of the regions file
-            regions_file = ref_genome + '.regions'
-            # Create the system call to fasta_generate_regions.py (part of the freebayes package)
-            regions_cmd = 'fasta_generate_regions.py {ref_genome}.fai {size} > {regions_file}' \
-                .format(ref_genome=ref_genome,
-                        size=size,
-                        regions_file=regions_file)
-            # Run the system call if the regions file does not exist
-            if not os.path.isfile(regions_file):
-                out, err = run_subprocess(regions_cmd)
-                # Write STDOUT and STDERR to the logfile
-                write_to_logfile(out='{cmd}\n{out}'.format(cmd=regions_cmd,
-                                                           out=out),
-                                 err=err,
-                                 logfile=logfile)
-            # Populate the dictionary with the path to the regions file
-            strain_ref_regions_dict[strain_name] = regions_file
-        return strain_ref_regions_dict
-
-    @staticmethod
-    def freebayes(strain_sorted_bam_dict, strain_name_dict, strain_reference_abs_path_dict, strain_ref_regions_dict,
-                  threads, logfile):
-        """
-        Run freebayes-parallel on each sample
-        :param strain_sorted_bam_dict: type DICT: Dictionary of strain name: absolute path of sorted BAM file
-        :param strain_name_dict: type DICT: Dictionary of strain name: absolute path of strain-specific working folder
-        :param strain_reference_abs_path_dict: type DICT: Dictionary of strain name: absolute path of reference genome
-        :param strain_ref_regions_dict: type DICT: Dictionary of strain name: absolute path to reference genome
-        regions file
-        :param threads: type INT: Number of threads to request for the analyses
-        :param logfile: type STR: Absolute path to logfile basename
-        :return: strain_vcf_dict: Dictionary of strain name: freebayes-created .vcf file
-        """
-        # Initialise a dictionary to store the absolute path to the .vcf files
-        strain_vcf_dict = dict()
-        for strain_name, sorted_bam in strain_sorted_bam_dict.items():
-            # Extract the paths to the strain-specific working directory, the reference genome, and the regions file
-            strain_folder = strain_name_dict[strain_name]
-            ref_genome = strain_reference_abs_path_dict[strain_name]
-            ref_regions_file = strain_ref_regions_dict[strain_name]
-            # Set the absolute path to, and create the freebayes working directory
-            freebayes_out_dir = os.path.join(strain_folder, 'freebayes')
-            make_path(freebayes_out_dir)
-            # Set the name of the output .vcf file
-            freebayes_out_vcf = os.path.join(freebayes_out_dir, '{sn}.gvcf'.format(sn=strain_name))
-            # Create the system call to freebayes-parallel
-            # Use the regions file to allow for parallelism
-            # Output in gVCF format with --gvcf, and emit records for all bases with --gvcf-dont-use-chunk true
-            freebayes_cmd = 'freebayes-parallel {ref_regions} {threads} --strict-vcf --gvcf ' \
-                            '--gvcf-dont-use-chunk true --use-best-n-alleles 1 -f {ref_genome} {sorted_bam} ' \
-                            '> {out_vcf}' \
-                .format(ref_regions=ref_regions_file,
-                        ref_genome=ref_genome,
-                        threads=threads,
-                        sorted_bam=sorted_bam,
-                        out_vcf=freebayes_out_vcf)
-            # Run the system call if the .vcf file does not exist
-            if not os.path.isfile(freebayes_out_vcf):
-                out, err = run_subprocess(freebayes_cmd)
-                # Write STDOUT and STDERR to the logfile
-                write_to_logfile(out=out,
-                                 err=err,
-                                 logfile=logfile,
-                                 samplelog=os.path.join(strain_folder, 'log.out'),
-                                 sampleerr=os.path.join(strain_folder, 'log.err'))
-            if os.path.isfile(freebayes_out_vcf):
-                # Populate the dictionary with the path to the .vcf file
-                strain_vcf_dict[strain_name] = freebayes_out_vcf
-        return strain_vcf_dict
 
     @staticmethod
     def parse_vcf(strain_vcf_dict):
@@ -1175,7 +1043,7 @@ class VCFMethods(object):
                             else:
                                 # Split the line based on the columns
                                 ref_genome, pos, id_stat, ref, alt_string, qual, filter_stat, info_string, \
-                                    format_stat, strain = line.rstrip().split('\t')
+                                format_stat, strain = line.rstrip().split('\t')
                                 # Find the depth entry. e.g. DP=11
                                 depth_group = re.search('(DP=[0-9]+)', info_string)
                                 # Split the depth matching group on '=' and convert the depth to an int
@@ -1218,397 +1086,3 @@ class VCFMethods(object):
             if os.path.isfile(vcf_file):
                 shutil.copyfile(src=vcf_file,
                                 dst=os.path.join(vcf_path, vcf_file_name))
-
-    @staticmethod
-    def bait_spoligo(strain_fastq_dict, strain_name_dict, spoligo_file, threads, logfile, kmer=25):
-        """
-        Use bbduk.sh to bait reads matching the spacer sequences. Output a file with the number of matches to each
-        spacer sequence
-        :param strain_fastq_dict: type DICT: Dictionary of strain name: list of FASTQ files
-        :param strain_name_dict: type DICT: Dictionary of strain name: strain-specific working folder
-        :param spoligo_file: type STR: Absolute path to FASTA-formatted file of spacer sequences
-        :param threads: type INT: Number of threads to request for the analyses
-        :param logfile: type STR: Absolute path to the logfile basename
-        :param kmer: type INT: kmer size to use for read baiting. Default value of 25 is used, as the spacer sequences
-        are all 25 bp long
-        :return: strain_spoligo_stats_dict: Dictionary of strain name: absolute path to bbduk-created stats file
-        """
-        # Initialise a dictionary to store the absolute path to the bbduk-created stats file
-        strain_spoligo_stats_dict = dict()
-        for strain_name, fastq_files in strain_fastq_dict.items():
-            # Extract the strain-specific working directory from the dictionary
-            strain_folder = strain_name_dict[strain_name]
-            # Set the absolute path, and create a directory to store the spoligotyping outputs
-            spoligo_path = os.path.join(strain_folder, 'spoligotyping')
-            make_path(spoligo_path)
-            # Set the absolute path to the bbduk-outputted stats file
-            baited_spoligo_stats = os.path.join(spoligo_path, '{sn}_stats.txt'.format(sn=strain_name))
-            # Single-end reads are treated differently
-            if len(fastq_files) == 1:
-                # Create the system call to bbduk.sh. Use the desired kmer size. Set maskmiddle to False
-                # (middle base of a kmer is NOT treated as a wildcard). Allow one mismatch
-                bait_cmd = 'dedupe.sh in={in1} out=stdout.fq | bbduk.sh ref={ref} in=stdin.fq int=f k={kmer} ' \
-                           'hdist=1 threads={threads} maskmiddle=f ' \
-                           'stats={stats_file}'.format(ref=spoligo_file,
-                                                       in1=fastq_files[0],
-                                                       kmer=kmer,
-                                                       threads=threads,
-                                                       stats_file=baited_spoligo_stats)
-            else:
-                bait_cmd = 'dedupe.sh in={in1} in2={in2} out=stdout.fq | bbduk.sh ref={ref} in=stdin.fq ' \
-                           'int=t k={kmer} threads={threads} ' \
-                           'maskmiddle=f hdist=1 stats={stats_file}' \
-                    .format(ref=spoligo_file,
-                            in1=fastq_files[0],
-                            in2=fastq_files[1],
-                            kmer=kmer,
-                            threads=threads,
-                            stats_file=baited_spoligo_stats)
-            # Run the system call if the stats file does not exist
-            if not os.path.isfile(baited_spoligo_stats):
-                out, err = run_subprocess(bait_cmd)
-                # Write STDOUT and STDERR to the logfile
-                write_to_logfile(out=out,
-                                 err=err,
-                                 logfile=logfile,
-                                 samplelog=os.path.join(strain_folder, 'log.out'),
-                                 sampleerr=os.path.join(strain_folder, 'log.err'))
-            # Populate the dictionary with the absolute path to the stats file
-            strain_spoligo_stats_dict[strain_name] = baited_spoligo_stats
-        return strain_spoligo_stats_dict
-
-    @staticmethod
-    def parse_spoligo(strain_spoligo_stats_dict):
-        """
-        Parse the bbduk-created spacer match stats file to create binary, octal, and hexadecimal code for the strain
-        :param strain_spoligo_stats_dict: type DICT: Dictionary of strain name: absolute path to stats file
-        :return: strain_binary_code_dict: Dictionary of strain name: string of presence/absence of all spacer sequences
-        :return: strain_octal_code_dict: Dictionary of strain name: string of octal code converted from binary string
-        :return: strain_hexadecimal_code_dict: Dictionary of strain name: string of hexadecimal code converted
-        from binary string
-        """
-        # Initialise dictionaries to store the calculated codes
-        strain_binary_code_dict = dict()
-        strain_octal_code_dict = dict()
-        strain_hexadecimal_code_dict = dict()
-        for strain_name, spoligo_stats_file in strain_spoligo_stats_dict.items():
-            # Initialise a dictionary to store the spacer counts
-            stats_dict = dict()
-            with open(spoligo_stats_file, 'r') as stats_file:
-                for line in stats_file:
-                    # Ignore all headers
-                    if '#Name' in line:
-                        for subline in stats_file:
-                            # Split the results on tabs into its constituent spacer, reads containing this spacer, and
-                            # the total percent of reads from the read set, which contain this spacer
-                            # e.g. spacer2	13	0.00325%
-                            spacer, reads, reads_percent = subline.rstrip().split('\t')
-                            # Populate the dictionary with the spacer name, and the number of reads
-                            stats_dict[spacer] = reads
-            # Convert the dictionary to a string of presence/absence for each spacer
-            binary_string = VCFMethods.create_binary_code(stats_dict=stats_dict)
-            # Create the octal code string from the binary string
-            octal_string = VCFMethods.binary_to_octal(binary_code=binary_string)
-            # Create the hexadecimal string from the binary string
-            hexadecimal_string = VCFMethods.binary_to_hexadecimal(binary_code=binary_string)
-            # Populate the dictionaries with the appropriate variables
-            strain_binary_code_dict[strain_name] = binary_string
-            strain_octal_code_dict[strain_name] = octal_string
-            strain_hexadecimal_code_dict[strain_name] = hexadecimal_string
-        return strain_binary_code_dict, strain_octal_code_dict, strain_hexadecimal_code_dict
-
-    @staticmethod
-    def create_binary_code(stats_dict):
-        """
-        Create a binary string of presence/absence of each spacer sequence (1: present, 0: absent)
-        :param stats_dict: type DICT: Dictionary of spacer name: number of reads
-        :return: binary_string: A string of presence/absence for each of the 43 spacer sequences
-        """
-        # Initialise a string to store the calculated binary string
-        binary_string = str()
-        # There are 43 spacer sequences, named spacer1 - spacer43. Will create a list of 1:43
-        for i in range(1, 44):
-            # Use the iterator to create the current spacer name e.g. spacer + 1
-            spacer_name = 'spacer{num}'.format(num=i)
-            # If the spacer name is in the dictionary, count this spacer as present
-            if spacer_name in stats_dict:
-                binary_hits = '1'
-            # Otherwise, the spacer is absent
-            else:
-                binary_hits = '0'
-            # Add the present/absence result to the growing binary code string
-            binary_string += binary_hits
-        return binary_string
-
-    @staticmethod
-    def binary_to_octal(binary_code):
-        """
-        Convert a supplied binary string to an octal code
-        for example, 1101000000000010111111111111111101111100000 becomes 640013777767600
-        :param binary_code: type STR: 43 character binary string of spacer presence/absence
-        :return: octal_code: Converted octal string
-        """
-        # Initialise the string to store the octal code
-        octal_code = str()
-        # Iterate through the binary string in blocks of three (binary triplet)
-        # e.g. 1101000000000010111111111111111101111100000 treated as: 110 100 000 000 001 011... etc.
-        for i in range(0, len(binary_code), 3):
-            # Convert the current binary triplet to an integer using int() with base 2 (e.g. 110 becomes 6)
-            # Append the str() of the integer to the octal code string
-            octal_code += str(int(binary_code[i:i + 3], 2))
-        return octal_code
-
-    @staticmethod
-    def binary_to_hexadecimal(binary_code):
-        """
-        Convert a supplied binary string to a hexadecimal code
-        for example, 1101000000000010111111111111111101111100000 becomes 68-0-5F-7F-F7-60
-        :param binary_code: type STR: 43 character binary string of spacer presence/absence
-        :return: hex_code: Converted hexadecimal string
-        """
-        # Initialise a string to store the hexadecimal string
-        hex_code = str()
-        # Iterate through the binary string in blocks of seven four times, and blocks of eight twice (the binary
-        # string is 43 characters long, yielding ranges of 0:7, 7:14, 14:21, 21:28, 28:36, 36:43
-        # e.g. 1101000000000010111111111111111101111100000 becomes 1101000 0000000 1011111 1111111 11110111 1100000
-        # These fragments are converted to hexadecimal:              0x68    0x0     0x5f    0x7f    0xf7     0x60
-        for i in range(0, len(binary_code), 7):
-            # The first four blocks are all treated the same
-            if i < 28:
-                # Convert the block of seven digits with to int(), base 2, and then to hexadecimal
-                hex_section = hex(int(binary_code[i:i + 7], 2))
-                # Remove the '0x' hexadecimal designation, and convert the string to uppercase. Add a dash for
-                # formatting reasons. Append this string to the growing hex_code string
-                hex_code += str(hex_section.replace('0x', '').upper()) + '-'
-            # The penultimate block is eight characters long, so the range of the block is i: i+8
-            elif i < 35:
-                hex_section = hex(int(binary_code[i:i + 8], 2))
-                hex_code += (hex_section.replace('0x', '').upper()) + '-'
-            # The final block is also eight characters long, but additionally, since the previous block was longer than
-            # the step size, i must be incremented
-            else:
-                # Increment i to reflect the longer size of the previous block
-                i += 1
-                hex_section = hex(int(binary_code[i:i + 8], 2))
-                hex_code += (hex_section.replace('0x', '').upper())
-                # Break the loop here, as it will attempt to iterate one more time, but will encounter an empty string
-                # due to the incrementing of i
-                break
-        return hex_code
-
-    @staticmethod
-    def extract_sbcode(strain_reference_dep_path_dict, strain_octal_code_dict):
-        """
-        Query the reference spoligotype_db.txt file using the calculated octal code to extract the sbcode
-        :param strain_reference_dep_path_dict: type DICT: Dictionary of strain name: path to reference dependency folder
-        :param strain_octal_code_dict: type DICT: Dictionary of strain name: calculated strain octal code
-        :return: strain_sbcode_dict: Dictionary of strain name: extracted sbcode
-        """
-        # Initialise the dictionary to store the extracted sbcode
-        strain_sbcode_dict = dict()
-        for strain_name, reference_abs_path in strain_reference_dep_path_dict.items():
-            # Extract the octal code from the dictionary
-            strain_octal_code = strain_octal_code_dict[strain_name]
-            # Set the absolute path of the spoligotype db file
-            spoligo_db_file = os.path.join(reference_abs_path, 'spoligotype_db.txt')
-            # Create a dictionary to store the octal code: sbcode pairs extracted from the file
-            spoligo_dict = dict()
-            if os.path.isfile(spoligo_db_file):
-                with open(spoligo_db_file, 'r') as spoligo_db:
-                    for line in spoligo_db:
-                        octal_code, sbcode, binary_code = line.split()
-                        spoligo_dict[octal_code] = sbcode
-            # Add the sbcode value for the strain-specific octal code key to the dictionary
-            if strain_octal_code in spoligo_dict:
-                strain_sbcode_dict[strain_name] = spoligo_dict[strain_octal_code]
-            # If the key is absent populate the dictionary with 'Not Detected' ('ND')
-            else:
-                strain_sbcode_dict[strain_name] = 'ND'
-        return strain_sbcode_dict
-
-    @staticmethod
-    def brucella_mlst(seqpath, mlst_db_path, logfile):
-        """
-        Run MLST analyses on the strains
-        :param seqpath: type STR: Absolute path to folder containing FASTQ files
-        :param mlst_db_path: type STR: Absolute path to folder containing Brucella MLST database files
-        :param logfile: type STR: Absolute path to the logfile basename
-        """
-        # Set the system call to the MLST python package in sipprverse
-        mlst_cmd = 'python -m genemethods.MLSTsippr.mlst -s {seqpath} -t {targetpath} -a mlst {seqpath}' \
-            .format(seqpath=seqpath,
-                    targetpath=mlst_db_path)
-        # Run the system call - don't worry about checking if there are outputs, the package will parse these reports
-        # rather than re-running the analyses
-        out, err = run_subprocess(mlst_cmd)
-        # Write STDOUT and STDERR to the logfile
-        write_to_logfile(out=out,
-                         err=err,
-                         logfile=logfile)
-
-    @staticmethod
-    def parse_mlst_report(strain_name_dict, mlst_report):
-        """
-        Parse the MLST report to create a dictionary with the calculated sequence type and the number of exact matches
-        per strain to the sequence type
-        :param strain_name_dict: type DICT: Dictionary of strain name: absolute path to strain working directory
-        :param mlst_report: type STR: Absolute path to MLST report
-        :return: strain_mlst_dict: Dictionary of strain name: sequence type and number of matches to the sequence type
-        """
-        # Initialise a dictionary to store the parsed MLST results
-        strain_mlst_dict = dict()
-        # Open the MLST report file
-        with open(mlst_report, 'r') as report:
-            # Skip the header line
-            next(report)
-            for line in report:
-                # Split the line on commas
-                data = line.rstrip().split(',')
-                # Extract the sequence type and the number of matches to the sequence type from the line. Populate the
-                # dictionary with these values
-                strain_mlst_dict[data[0]] = {
-                    'sequence_type': data[2],
-                    'matches': data[3],
-                }
-        # If the strain did not have MLST outputs, populate negative 'ND' values for the sequence type and number
-        # of matches
-        for strain in strain_name_dict:
-            # Only populate negative values for strains absent from the outputs
-            if strain not in strain_mlst_dict:
-                strain_mlst_dict[strain] = {
-                    'sequence_type': 'ND',
-                    'matches': 'ND',
-                }
-        return strain_mlst_dict
-
-    @staticmethod
-    def create_vcf_report(start_time, strain_species_dict, strain_best_ref_dict, strain_fastq_size_dict,
-                          strain_average_quality_dict, strain_qual_over_thirty_dict, strain_qualimap_outputs_dict,
-                          strain_avg_read_lengths, strain_unmapped_contigs_dict, strain_num_high_quality_snps_dict,
-                          strain_mlst_dict, strain_octal_code_dict, strain_sbcode_dict, strain_hexadecimal_code_dict,
-                          strain_binary_code_dict, report_path):
-        """
-        Create an Excel report of the vcf outputs
-        :param start_time: type datetime.now(): Datetime object
-        :param strain_species_dict: type DICT: Dictionary of strain name: species code
-        :param strain_best_ref_dict: type DICT: Dictionary of strain name: closest reference genome
-        :param strain_fastq_size_dict: type DICT: Dictionary of strain name: list of sizes of FASTQ files in megabytes
-        :param strain_average_quality_dict: type DICT: Dictionary of strain name: list of read set-specific average
-        quality scores
-        :param strain_qual_over_thirty_dict: type DICT: Dictionary of strain name: list of read set-specific percentage
-        of reads with a Phred quality-score greater or equal to 30
-        :param strain_qualimap_outputs_dict: type DICT: Dictionary of strain name: dictionary of key: value from
-        qualimap report
-        :param strain_avg_read_lengths: type DICT: Dictionary of strain name: float of calculated strain-specific
-        average read length
-        :param strain_unmapped_contigs_dict: type DICT: Dictionary of strain name: number of contigs in skesa-created
-        contigs FASTA file
-        :param strain_num_high_quality_snps_dict: type DICT: Dictionary of strain name: number of high quality SNPs
-        :param strain_mlst_dict: type DICT: Dictionary of strain name: sequence type and number of matches to the
-        sequence type
-        :param strain_octal_code_dict: type DICT: Dictionary of strain name: calculated strain octal code
-        :param strain_sbcode_dict: type DICT: Dictionary of strain name: extracted sbcode
-        :param strain_hexadecimal_code_dict: type DICT: Dictionary of strain name: string of hexadecimal code converted
-        from binary string
-        :param strain_binary_code_dict: type DICT: Dictionary of strain name: string of presence/absence of all spacer
-        sequences
-        :param report_path: type STR: Absolute path to path in which reports are to be created
-        :return: vcf_report: Absolute path to the Excel report
-        """
-        # Create a date string consistent with classic vSNP
-        start = '{:%Y-%m-%d_%H-%M-%S}'.format(start_time)
-        # Initialise a string to store the absolute path to the Excel report
-        vcf_report = os.path.join(os.path.join(report_path, 'stat_alignment_summary_{start}.xlsx'
-                                               .format(start=start)))
-        # Set the list of the headers
-        header_list = ['time_stamp', 'sample_name', 'species', 'reference_sequence_name', 'R1size', 'R2size',
-                       'Q_ave_R1', 'Q_ave_R2', 'Q30_R1', 'Q30_R2', 'allbam_mapped_reads', 'genome_coverage',
-                       'ave_coverage', 'ave_read_length', 'unmapped_reads', 'unmapped_assembled_contigs',
-                       'good_snp_count', 'mlst_type', 'octalcode', 'sbcode', 'hexadecimal_code', 'binarycode']
-        # Create a workbook to store the report using xlsxwriter.
-        workbook = xlsxwriter.Workbook(vcf_report)
-        # New worksheet to store the data
-        worksheet = workbook.add_worksheet()
-        # Add a bold format for header cells. Using a monotype font size 10
-        bold = workbook.add_format({'bold': True, 'font_name': 'Courier New', 'font_size': 10})
-        # Format for data cells. Monotype, size 10, top vertically justified
-        courier = workbook.add_format({'font_name': 'Courier New', 'font_size': 10})
-        courier.set_align('top')
-        # Initialise the position within the worksheet to be (0,0)
-        row = 0
-        # Set the column to zero
-        col = 0
-        # Write the header to the spreadsheet
-        for header in header_list:
-            worksheet.write(row, col, header, bold)
-            col += 1
-        for strain_name, fastq_sizes in strain_fastq_size_dict.items():
-            # Increment the row and reset the column to zero in preparation of writing results
-            row += 1
-            col = 0
-            # Extract all the required entries from the dictionaries
-
-            # Set all the floats to have two decimal places
-            forward_size = '{:.2f}'.format(fastq_sizes[0])
-            forward_avg_quality = '{:.2f}'.format(strain_average_quality_dict[strain_name][0])
-            forward_perc_reads_over_thirty = '{:.2f}%'.format(strain_qual_over_thirty_dict[strain_name][0])
-            # Allow strains that do not have a match to be added to the report
-            try:
-                strain_species = strain_species_dict[strain_name]
-                best_ref = os.path.splitext(strain_best_ref_dict[strain_name])[0]
-                genome_coverage = strain_qualimap_outputs_dict[strain_name]['genome_coverage']
-                avg_cov_depth = '{:.2f}'.format(float(strain_qualimap_outputs_dict[strain_name]['MeanCoveragedata']))
-                avg_read_length = '{:.2f}'.format(strain_avg_read_lengths[strain_name])
-                mapped_reads = strain_qualimap_outputs_dict[strain_name]['MappedReads'].split('(')[0]
-                # Subtract the number of mapped reads from the total number of reads to determine the number of
-                # unmapped reads
-                unmapped_reads = int(strain_qualimap_outputs_dict[strain_name]['Reads']) - int(mapped_reads)
-                num_unmapped_contigs = strain_unmapped_contigs_dict[strain_name]
-                high_quality_snps = strain_num_high_quality_snps_dict[strain_name]
-                ml_seq_type = strain_mlst_dict[strain_name]['sequence_type']
-                octal_code = strain_octal_code_dict[strain_name]
-                sbcode = strain_sbcode_dict[strain_name]
-                hex_code = strain_hexadecimal_code_dict[strain_name]
-                binary_code = strain_binary_code_dict[strain_name]
-                # Brucella will not have a 'real' octal code. Find this string and replace it with 'ND'. Set
-                # the hex_code and binary codes to for this Brucella strain to 'ND'
-                octal_code = octal_code if octal_code != '000000000000000' else 'ND'
-                hex_code = hex_code if octal_code != 'ND' else 'ND'
-                binary_code = binary_code if octal_code != 'ND' else 'ND'
-            except KeyError:
-                strain_species = 'ND'
-                best_ref = 'ND'
-                genome_coverage = 'ND'
-                avg_cov_depth = 'ND'
-                avg_read_length = 'ND'
-                mapped_reads = 'ND'
-                unmapped_reads = 'ND'
-                num_unmapped_contigs = 'ND'
-                high_quality_snps = 'ND'
-                ml_seq_type = 'ND'
-                octal_code = 'ND'
-                sbcode = 'ND'
-                hex_code = 'ND'
-                binary_code = 'ND'
-            # If there are no reverse reads, populate the variables with 'ND'
-            try:
-                reverse_size = '{:.2f}'.format(fastq_sizes[1])
-                reverse_avg_quality = '{:.2f}'.format(strain_average_quality_dict[strain_name][1])
-                reverse_perc_reads_over_thirty = '{:.2f}%'.format(strain_qual_over_thirty_dict[strain_name][1])
-            except IndexError:
-                reverse_size = 'ND'
-                reverse_avg_quality = 'ND'
-                reverse_perc_reads_over_thirty = 'ND'
-            # Populate the list with the required data
-            data_list = [start, strain_name, strain_species, best_ref, forward_size, reverse_size, forward_avg_quality,
-                         reverse_avg_quality, forward_perc_reads_over_thirty, reverse_perc_reads_over_thirty,
-                         mapped_reads,
-                         genome_coverage, avg_cov_depth, avg_read_length, unmapped_reads, num_unmapped_contigs,
-                         high_quality_snps, ml_seq_type, octal_code, sbcode, hex_code, binary_code]
-            # Write out the data to the spreadsheet
-            for results in data_list:
-                worksheet.write(row, col, results, courier)
-                col += 1
-        # Close the workbook
-        workbook.close()
-        return vcf_report
