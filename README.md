@@ -5,6 +5,8 @@ Single nucleotide variant detection pipeline using logic modified from https://g
 
 Documentation is available [here](https://OLC-LOC-Bioinformatics.github.io/COWSNPhR/)
 
+[![Build Status](https://travis-ci.org/OLC-LOC-Bioinformatics/COWSNPhR.svg?branch=master)](https://travis-ci.org/OLC-LOC-Bioinformatics/COWSNPhR)
+
 ### Quickstart
 
 You must have docker installed, and be a member of the 'docker' users group
