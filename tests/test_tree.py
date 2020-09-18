@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from olctools.accessoryFunctions.accessoryFunctions import filer, make_path
-from cowsnphr.tree_methods import TreeMethods
-from cowsnphr.cowsnphr import COWSNPhR
+from cowsnphr_src.tree_methods import TreeMethods
+from cowsnphr_src.cowsnphr import COWSNPhR
 from datetime import datetime
 import multiprocessing
 from glob import glob
@@ -384,7 +384,7 @@ def test_copy_trees():
     TreeMethods.copy_trees(species_group_trees=species_group_trees,
                            tree_path=tree_path)
     assert len(glob(os.path.join(tree_path, '*_All*'))) == 0
-    assert len(glob(os.path.join(tree_path, '*species*'))) == 1
+    assert len(glob(os.path.join(tree_path, '*best_tree*'))) == 1
     assert len(glob(os.path.join(tree_path, '*'))) == 1
 
 
@@ -455,7 +455,7 @@ def test_create_snp_matrix():
     TreeMethods.create_snp_matrix(species_group_best_ref=species_group_best_ref,
                                   group_strain_snp_sequence=group_strain_snp_sequence,
                                   matrix_path=matrix_path)
-    assert os.path.isfile(os.path.join(matrix_path, 'species_group_snp_matrix.csv'))
+    assert os.path.isfile(os.path.join(matrix_path, 'snv_matrix.tsv'))
 
 
 def test_rank_snps():
@@ -498,7 +498,7 @@ def test_create_nt_summary_table():
                                      species_group_num_snps=species_group_num_snps,
                                      summary_path=summary_path,
                                      molecule='nt')
-    assert os.path.isfile(os.path.join(summary_path, 'species_group_nt_sorted_table.xlsx')) == 1
+    assert os.path.isfile(os.path.join(summary_path, 'nt_snv_sorted_table.xlsx')) == 1
 
 
 def test_create_aa_summary_table():
@@ -512,7 +512,7 @@ def test_create_aa_summary_table():
                                      species_group_num_snps=species_group_num_snps,
                                      summary_path=summary_path,
                                      molecule='aa')
-    assert os.path.isfile(os.path.join(summary_path, 'species_group_aa_sorted_table.xlsx')) == 1
+    assert os.path.isfile(os.path.join(summary_path, 'aa_snv_sorted_table.xlsx')) == 1
 
 
 def test_folder_prep():

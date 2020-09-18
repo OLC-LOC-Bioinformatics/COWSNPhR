@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from olctools.accessoryFunctions.accessoryFunctions import filer, make_path
-from cowsnphr.vcf_methods import VCFMethods
+from cowsnphr_src.vcf_methods import VCFMethods
 from datetime import datetime
 from pathlib import Path
 import multiprocessing
@@ -15,7 +15,7 @@ __author__ = 'adamkoziol'
 test_path = os.path.abspath(os.path.dirname(__file__))
 file_path = os.path.join(test_path, 'files', 'fastq')
 dependency_path = os.path.join(os.path.dirname(test_path), 'dependencies')
-report_path = os.path.join(file_path, 'reports')
+summary_path = os.path.join(file_path, 'summary_tables')
 vcf_path = os.path.join(file_path, 'vcf_files')
 logfile = os.path.join(file_path, 'log')
 threads = multiprocessing.cpu_count() - 1
@@ -354,9 +354,9 @@ def test_quast():
 
 def test_parse_quast_report():
     VCFMethods.parse_quast_report(quast_report_dict=quast_report_dict,
-                                  report_path=report_path)
-    assert os.path.isfile(os.path.join(report_path, 'assembly_report.tsv'))
-    with open(os.path.join(report_path, 'assembly_report.tsv'), 'r') as quast:
+                                  summary_path=summary_path)
+    assert os.path.isfile(os.path.join(summary_path, 'assembly_report.tsv'))
+    with open(os.path.join(summary_path, 'assembly_report.tsv'), 'r') as quast:
         header = quast.readline().split('\t')
         data = quast.readline().split('\t')
     assert header[0] == 'Assembly'
@@ -517,7 +517,7 @@ def test_remove_vcf_path():
 
 
 def test_remove_report_folder():
-    shutil.rmtree(report_path)
+    shutil.rmtree(summary_path)
 
 
 def test_remove_working_dir():

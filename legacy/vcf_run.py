@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from olctools.accessoryFunctions.accessoryFunctions import SetupLogging
-from cowsnphr.install_dependencies import install_deps
-from cowsnphr.vcf_methods import VCFMethods
+from cowsnphr_src.install_dependencies import install_deps
+from cowsnphr_src.vcf_methods import VCFMethods
 from datetime import datetime
 from pathlib import Path
 import subprocess

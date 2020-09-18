@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 from olctools.accessoryFunctions.accessoryFunctions import filer, make_path, relative_symlink, run_subprocess, \
     write_to_logfile
-from Bio import SeqIO
 import multiprocessing
 from glob import glob
-import xlsxwriter
 import shutil
 import gzip
 import os
@@ -647,11 +645,11 @@ class VCFMethods(object):
         return quast_report_dict
 
     @staticmethod
-    def parse_quast_report(quast_report_dict, report_path):
+    def parse_quast_report(quast_report_dict, summary_path):
         """
         Parse the quast reports for each assembly, and create a combined report in the supplied report path
         :param quast_report_dict: type DICT: Dictionary of strain name: absolute path to quast report
-        :param report_path: type STR: Absolute path to directory in which reports are to be created
+        :param summary_path: type STR: Absolute path to directory in which reports are to be created
         """
         # Initialise strings to store the header and body information from the quast reports
         header = str()
@@ -663,13 +661,15 @@ class VCFMethods(object):
                     # Populate the header string if it doesn't already exist
                     if not header:
                         header = report.readline()
+                    else:
+                        _ = report.readline()
                     # Add the report data to the string
                     for line in report:
                         body += line
         # Create the report path as required
-        make_path(report_path)
+        make_path(summary_path)
         # Write the header and body strings to the combined report
-        with open(os.path.join(report_path, 'assembly_report.tsv'), 'w') as quast:
+        with open(os.path.join(summary_path, 'assembly_report.tsv'), 'w') as quast:
             quast.write(header)
             quast.write(body)
 
@@ -920,7 +920,22 @@ class VCFMethods(object):
                                          strain_name_dict, strain_reference_abs_path_dict, strain_gvcf_tfrecords_dict,
                                          vcf_path, home, logfile, deepvariant_version, working_path=None):
         """
-
+        Run the postprocess_variants script in the deepvariant Docker images. Creates global VCF output files
+        :param strain_name: type STR: Name of strain currently being processed
+        :param strain_call_variants_dict: type DICT: Dictionary of strain name: absolute path to deepvariant
+        call_variants outputs
+        :param strain_variant_path_dict: type DICT: Dictionary of strain name: absolute path to deepvariant output dir
+        :param strain_name_dict: type DICT: Dictionary of strain name: absolute path to strain-specific working dir
+        :param strain_reference_abs_path_dict: type DICT: Dictionary of strain name: absolute path to best reference
+        genome
+        :param strain_gvcf_tfrecords_dict: type DICT: strain_call_variants_dict: Dictionary of strain name:
+        absolute path to deepvariant call_variants outputs
+        :param vcf_path: type STR: Absolute path to folder in which all symlinks to .vcf files are to be created
+        :param home: type STR: Absolute path to $HOME
+        :param logfile: type STR: Absolute path to logfile basename
+        :param deepvariant_version: type STR: Version number of deepvariant docker image to use
+        :param working_path: type STR: Absolute path to an additional volume to mount to docker container
+        :return: strain_vcf_dict: Dictionary of strain name: absolute path to .gvcf.gz output file
         """
         # Initialise a dictionary to store the absolute path of the .vcf.gz output files
         strain_vcf_dict = dict()
@@ -990,7 +1005,7 @@ class VCFMethods(object):
                                 subline = subline.decode()
                                 # Split the line based on the columns
                                 ref_genome, pos, id_stat, ref, alt_string, qual, filter_stat, info_string, \
-                                format_stat, strain = subline.split('\t')
+                                    format_stat, strain = subline.split('\t')
                                 # Initialise a string to hold the clean 'alt_string'
                                 alt = str()
                                 # Matches will have the following alt_string format: <*>. For SNP calls, the alt_string
@@ -1043,7 +1058,7 @@ class VCFMethods(object):
                             else:
                                 # Split the line based on the columns
                                 ref_genome, pos, id_stat, ref, alt_string, qual, filter_stat, info_string, \
-                                format_stat, strain = line.rstrip().split('\t')
+                                    format_stat, strain = line.rstrip().split('\t')
                                 # Find the depth entry. e.g. DP=11
                                 depth_group = re.search('(DP=[0-9]+)', info_string)
                                 # Split the depth matching group on '=' and convert the depth to an int

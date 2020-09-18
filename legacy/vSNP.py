@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-from cowsnphr.tree_run import Tree
-from cowsnphr.vcf_run import VCF
+from cowsnphr_src.tree_run import Tree
+from cowsnphr_src.vcf_run import VCF
 from argparse import ArgumentParser, RawTextHelpFormatter
 import multiprocessing
 import os

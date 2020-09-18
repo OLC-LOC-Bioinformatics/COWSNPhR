@@ -1107,7 +1107,7 @@ class TreeMethods(object):
         :param group_positions_set: type DICT: Dictionary of species code: group name: reference chromosome: set of
         group-specific SNP positions
         :param strain_parsed_vcf_dict: type DICT: Dictionary of strain name: dictionary of parsed VCF data
-        :param species_group_best_ref: type DICT: Dictionary of species code: group name; best ref
+        :param species_group_best_ref: type DICT: Dictionary of species code: group name: best ref
         :param reference_strain_dict: type DICT: Dictionary of strain name: absolute path to reference genome
         :param ident_group_positions: type DICT: Dictionary of species: group: reference chromosome: set of identical
         positions
@@ -1176,7 +1176,7 @@ class TreeMethods(object):
                                        id=strain_name,
                                        description='')
                     # Set the name of the FASTA alignment file
-                    group_fasta = os.path.join(output_dir, '{group}_alignment.fasta'.format(group=group))
+                    group_fasta = os.path.join(output_dir, 'alignment.fasta')
                     # Use SeqIO to append the FASTA sequence to the alignment file
                     with open(group_fasta, 'a+') as fasta:
                         SeqIO.write(record, fasta, 'fasta')
@@ -1189,24 +1189,31 @@ class TreeMethods(object):
                     filter_reasons, strain_parsed_vcf_dict, filtered_group_positions, mask_pos_dict,
                     supplied_mask_pos_dict, ident_group_positions, summary_path):
         """
-
-        :param group_strain_snp_sequence:
-        :param species_group_best_ref:
-        :param reference_strain_dict:
-        :param group_positions_set:
-        :param filter_reasons:
-        :param strain_parsed_vcf_dict:
-        :param filtered_group_positions:
-        :param mask_pos_dict:
-        :param supplied_mask_pos_dict:
-        :param ident_group_positions:
-        :param summary_path:
-        :return:
+        Create two summary tables. snv_summary.tsv has details on every SNV position extracted from the global VCF
+        files. contig_summary_tsv has details for every reference contig
+        :param group_strain_snp_sequence: type DICT: Dictionary of species: group: strain name: reference chromosome:
+        position: sequence
+        :param species_group_best_ref: type DICT: Dictionary of species code: group name: best ref
+        :param reference_strain_dict: type DICT: Dictionary of strain name: absolute path to reference genome
+        :param group_positions_set: type DICT: Dictionary of species code: group name: reference chromosome: set of
+        group-specific SNP positions
+        :param filter_reasons: type DICT: Dictionary of species: group: reference chromosome: position: list of reasons
+        position was excluded
+        :param strain_parsed_vcf_dict: type DICT: Dictionary of strain name: dictionary of parsed VCF data
+        :param filtered_group_positions: type DICT: Dictionary of species: group: reference chromosome: set of
+        density-filtered SNP positions
+        :param mask_pos_dict: type DICT: Dictionary of species: group: reference chromosome: set of
+        nucmer-calculated masked positions
+        :param supplied_mask_pos_dict: type DICT: Dictionary of species: group: reference chromosome: set of user-
+        supplied masked positions
+        :param ident_group_positions: type DICT: Dictionary of species: group: reference chromosome: set of identical
+        positions
+        :param summary_path: type STR: Absolute path to folder in which summary reports are to be created
         """
         # Create the summary path as required
         make_path(summary_path)
-        with open(os.path.join(summary_path, 'snp_summary.csv'), 'w') as snp_summary:
-            with open(os.path.join(summary_path, 'position_summary.csv'), 'w') as pos_summary:
+        with open(os.path.join(summary_path, 'snv_summary.tsv'), 'w') as snp_summary:
+            with open(os.path.join(summary_path, 'contig_summary.tsv'), 'w') as pos_summary:
                 for species, group_dict in group_strain_snp_sequence.items():
                     for group, strain_dict in group_dict.items():
                         # Extract the name of the reference genome from the species_group_best_ref dictionary using
@@ -1214,10 +1221,11 @@ class TreeMethods(object):
                         best_ref = species_group_best_ref[species][group]
                         # Use SeqIO to parse all the records in the reference FASTA file
                         ref_records = SeqIO.to_dict(SeqIO.parse(reference_strain_dict[best_ref], 'fasta'))
-                        #
-                        snp_summary_header = 'Contig,Pos,Status,Reason,'
-                        pos_summary_header = 'Contig,TotalLength,TotalInvalid,TotalValid,TotalValidInCore,' \
-                                             'PercentValidInCore,PercentTotalValidInCore\n'
+                        # Create the header strings
+                        snp_summary_header = 'Contig\tPos\tStatus\tReason\t'
+                        pos_summary_header = 'Contig\tTotalLength\tTotalInvalid\tTotalValid\tTotalValidInCore\t' \
+                                             'PercentValidInCore\tPercentTotalValidInCore\n'
+                        # Initialise variables
                         snp_summary_body = str()
                         pos_summary_body = str()
                         summary_length = 0
@@ -1231,63 +1239,78 @@ class TreeMethods(object):
                             total_valid = 0
                             total_valid_in_core = 0
                             for pos, ref_seq in enumerate(str(ref_records[ref_chrom].seq)):
-                                # Adjust sequence
-                                ref_seq = str(ref_records[ref_chrom].seq)[pos-1]
+                                # Adjust sequence to account for 0-based indexing
+                                ref_seq = str(ref_records[ref_chrom].seq)[pos - 1]
+                                # Initialise the valid and core variables
                                 valid = True
                                 core = True
+                                # Determine if the position is present in the set of all SNV positions of the sample
                                 if pos in position_set:
-                                    snp_summary_body += '{ref_chrom},'.format(ref_chrom=ref_chrom)
-                                    #
+                                    snp_summary_body += '{ref_chrom}\t'.format(ref_chrom=ref_chrom)
+                                    # If the position is present in the filter_reasons dictionary, it is neither a core,
+                                    # nor a valid position
                                     try:
-                                        validity = 'invalid,{reason}'\
+                                        # Add the reasons that the position is invalid to the validity string
+                                        validity = 'invalid\t{reason}'\
                                             .format(reason=';'.join(filter_reasons[species][group][ref_chrom][pos]))
                                         valid = False
                                         core = False
                                     except KeyError:
+                                        # If the position is not in the dictionary of identical postions, it is both
+                                        # valid and core
                                         if pos not in ident_group_positions[species][group][ref_chrom]:
-                                            validity = 'valid,'
+                                            validity = 'valid\t'
+                                        # Otherwise, the SNV allele likely didn't have a high enough fraction, so the
+                                        # position is invalid, but core
                                         else:
-                                            validity = 'invalid,majority reference call'
+                                            validity = 'invalid\tmajority reference call'
                                             valid = False
                                             core = True
                                     sequence_string = str()
                                     for strain_name, chrom_dict in sorted(strain_dict.items()):
-
+                                        # Don't process the reference strain
                                         if strain_name != best_ref:
+                                            # Add the strain name to the list of all strains
                                             if strain_name not in strain_names:
                                                 strain_names.append(strain_name)
                                             try:
                                                 sequence = chrom_dict[ref_chrom][pos]
                                                 # Append each base to the string
-                                                sequence_string += '{seq},'.format(seq=sequence)
+                                                sequence_string += '{seq}\t'.format(seq=sequence)
                                             except KeyError:
+                                                # If the position isn't in chrom_dict, it is either because it is
+                                                # identical to the reference, or it was deleted
                                                 try:
+                                                    # If it was deleted, add a -, otherwise, use the reference base
                                                     sequence_dict = strain_parsed_vcf_dict[strain_name][ref_chrom][pos]
                                                     if sequence_dict['FILTER'] == 'DELETION':
-                                                        sequence_string += '-,'
+                                                        sequence_string += '-\t'
                                                     else:
-                                                        sequence_string += '{seq},'\
+                                                        sequence_string += '{seq}\t'\
                                                             .format(seq=ref_seq)
                                                 except KeyError:
-                                                    sequence_string += '{seq},' \
+                                                    sequence_string += '{seq}\t' \
                                                         .format(seq=ref_seq)
-                                    snp_summary_body += '{pos},{validity},{ref_seq},{seq_string}\n'\
+                                    snp_summary_body += '{pos}\t{validity}\t{ref_seq}\t{seq_string}\n'\
                                         .format(pos=pos,
                                                 validity=validity,
                                                 ref_seq=ref_seq,
                                                 seq_string=sequence_string)
+                                # If the position isn't in the set of sample SNVs, check its status
                                 else:
                                     for strain_name, chrom_dict in strain_dict.items():
+                                        # If the position is missing, then it is not a core position
                                         try:
                                             sequence_dict = strain_parsed_vcf_dict[strain_name][ref_chrom][pos]
                                             if sequence_dict['FILTER'] == 'DELETION':
                                                 core = False
                                         except KeyError:
                                             pass
-                                    # Density filtering check
+                                    # Density filtering check. A density-filtered position is neither valid or core
                                     if pos in filtered_group_positions[species][group][ref_chrom]:
                                         valid = False
                                         core = False
+                                    # Calculated mask. A masked position is neither valid nor core
                                     try:
                                         calculated_mask = mask_pos_dict[species][group][ref_chrom]
                                         if pos in calculated_mask:
@@ -1295,6 +1318,7 @@ class TreeMethods(object):
                                             core = False
                                     except KeyError:
                                         pass
+                                    # User-supplied mask
                                     try:
                                         user_mask = supplied_mask_pos_dict[species][group][ref_chrom]
                                         if pos in user_mask:
@@ -1302,20 +1326,22 @@ class TreeMethods(object):
                                             core = False
                                     except KeyError:
                                         pass
+                                # Determine if the position is either valid or core
                                 if not valid:
                                     total_invalid += 1
                                 else:
                                     total_valid += 1
                                     if core:
                                         total_valid_in_core += 1
+                            # Calculate the necessary values
                             percent_valid_in_core = '{:.2f}'.format(total_valid_in_core/total_valid*100)
                             percent_total_valid_in_core = '{:.2f}'.format(total_valid_in_core/total_length*100)
                             summary_length += total_length
                             summary_invalid += total_invalid
                             summary_valid += total_valid
                             summary_valid_in_core += total_valid_in_core
-                            pos_summary_body += '{ref_chrom},{total_length},{total_invalid},{total_valid},' \
-                                                '{total_valid_in_core},{percent_valid_in_core},' \
+                            pos_summary_body += '{ref_chrom}\t{total_length}\t{total_invalid}\t{total_valid}\t' \
+                                                '{total_valid_in_core}\t{percent_valid_in_core}\t' \
                                                 '{percent_total_valid_in_core}\n'\
                                 .format(ref_chrom=ref_chrom,
                                         total_length=total_length,
@@ -1326,8 +1352,8 @@ class TreeMethods(object):
                                         percent_total_valid_in_core=percent_total_valid_in_core)
                     summary_percent_valid_in_core = '{:.2f}'.format(summary_valid_in_core / summary_valid * 100)
                     summary_percent_total_valid_in_core = '{:.2f}'.format(summary_valid_in_core / summary_length * 100)
-                    pos_summary_body += 'summary,{summary_length},{summary_invalid},{summary_valid},' \
-                                        '{summary_valid_in_core},{summary_percent_valid_in_core},' \
+                    pos_summary_body += 'summary\t{summary_length}\t{summary_invalid}\t{summary_valid}\t' \
+                                        '{summary_valid_in_core}\t{summary_percent_valid_in_core}\t' \
                                         '{summary_percent_total_valid_in_core}\n' \
                         .format(summary_length=summary_length,
                                 summary_invalid=summary_invalid,
@@ -1335,96 +1361,11 @@ class TreeMethods(object):
                                 summary_valid_in_core=summary_valid_in_core,
                                 summary_percent_valid_in_core=summary_percent_valid_in_core,
                                 summary_percent_total_valid_in_core=summary_percent_total_valid_in_core)
-                    snp_summary_header += '{strain_name}\n'.format(strain_name=','.join(strain_names))
+                    snp_summary_header += '{strain_name}\n'.format(strain_name='\t'.join(strain_names))
                     snp_summary.write(snp_summary_header)
                     snp_summary.write(snp_summary_body)
                     pos_summary.write(pos_summary_header)
                     pos_summary.write(pos_summary_body)
-
-    @staticmethod
-    def run_raxml(group_fasta_dict, strain_consolidated_ref_dict, strain_groups, threads, logfile):
-        """
-        Create maximum-likelihood trees (both bootstrap consensus of 100 replicates, and a single best tree) using
-        RAxML
-        :param group_fasta_dict: type DICT: Dictionary of species code: group name: FASTA file created for the group
-        :param strain_consolidated_ref_dict: type DICT: Dictionary of strain name: extracted reference genome name
-        :param strain_groups: type DICT: Dictionary of strain name: list of group(s) for which the strain contains the
-        defining SNP
-        :param threads: type INT: Number of threads to request for the analyses
-        :param logfile: type STR: Absolute path to logfile basename
-        :return: species_group_trees: Dictionary of species code: group name: dictionary of tree type: absolute path
-        to RAxML output tree
-        """
-        # Initialise a dictionary to store the absolute paths of the output trees
-        species_group_trees = dict()
-        for species, group_dict in group_fasta_dict.items():
-            # Initialise the species key in the dictionary if necessary
-            if species not in species_group_trees:
-                species_group_trees[species] = dict()
-            for strain_name, best_ref in strain_consolidated_ref_dict.items():
-                for group, fasta_file in group_dict.items():
-                    if group in strain_groups[strain_name]:
-                        # Initialise the group key in the dictionary if necessary
-                        if group not in species_group_trees[species]:
-                            species_group_trees[species][group] = dict()
-                        # Set the path of the RAxML working dir
-                        raxml_output_dir = os.path.dirname(fasta_file)
-                        # Create a system call to RAxML. Use the raxmlHPC-PTHREADS-SSE3 binary.
-                        # -m GTRCATI: use the GTR + Optimization of substitution rates + Optimization of site-specific
-                        #   evolutionary rates as the model
-                        # -o: use the reference file as the outgroup
-                        # -p: random number seed
-                        raxml_base_cmd = \
-                            'raxmlHPC-PTHREADS-SSE3 -s {fasta_file} -m GTRCATI ' \
-                            '-o {best_ref} -p 12345 -T {threads}'.format(fasta_file=fasta_file,
-                                                                         best_ref=best_ref,
-                                                                         threads=threads)
-                        # For the 'best tree' analysis, supply the RAxML working dir as the output directory
-                        # -n: name the output file using species_group
-                        raxml_cmd = raxml_base_cmd + ' -n {species}_{group} -w {output_dir}' \
-                            .format(species=species,
-                                    group=group,
-                                    output_dir=raxml_output_dir)
-                        # Set the absolute path to the best tree output file, and populate the dictionary with this path
-                        raxml_best_tree = os.path.join(raxml_output_dir,
-                                                       'RAxML_bestTree.{species}_{group}'
-                                                       .format(species=species,
-                                                               group=group))
-                        species_group_trees[species][group]['best_tree'] = raxml_best_tree
-                        # Run the system call if the output best tree doesn't already exist
-                        if not os.path.isfile(raxml_best_tree):
-                            out, err = run_subprocess(command=raxml_cmd)
-                            # Write the stdout and stderr to the main logfiles
-                            write_to_logfile(out=out,
-                                             err=err,
-                                             logfile=logfile)
-                        # Set the path and create the bootstrapping working directory
-                        bootstrap_dir = os.path.join(raxml_output_dir, 'bootstrapping')
-                        make_path(bootstrap_dir)
-                        # For the bootstrapping command, set the working dir as the bootstrapping working dir, also:
-                        # -n: name the output file using species_group_bootstrap
-                        # -f a: rapid Bootstrap analysis and search for best-scoring ML tree in one program run
-                        # -x : rapid Bootstrap analysis random number seed
-                        # -N: number of Bootstrap searches
-                        raxml_bootstrap_cmd = raxml_base_cmd + ' -n {species}_{group}_bootstrap ' \
-                                                               '-w {output_dir} -f a -x 12345 -N 100' \
-                            .format(species=species,
-                                    group=group,
-                                    output_dir=bootstrap_dir, )
-                        # Set the path of the bootstrap tree output file, and populate the dictioanry
-                        bootstrap_tree = os.path.join(bootstrap_dir,
-                                                      'RAxML_bestTree.{species}_{group}_bootstrap'
-                                                      .format(species=species,
-                                                              group=group))
-                        species_group_trees[species][group]['bootstrap_tree'] = bootstrap_tree
-                        # Run the bootstrap analyses if the output tree doesn't exist
-                        if not os.path.isfile(bootstrap_tree):
-                            out, err = run_subprocess(command=raxml_bootstrap_cmd)
-                            # Write the stdout and stderr to the main logfile
-                            write_to_logfile(out=out,
-                                             err=err,
-                                             logfile=logfile)
-        return species_group_trees
 
     @staticmethod
     def run_fasttree(group_fasta_dict, strain_consolidated_ref_dict, strain_groups, logfile):
@@ -1453,7 +1394,7 @@ class TreeMethods(object):
                         # Set the path of the working dir
                         output_dir = os.path.dirname(fasta_file)
                         best_tree = os.path.join(output_dir,
-                                                 '{species}_{group}.tre'
+                                                 'best_tree.tre'
                                                  .format(species=species,
                                                          group=group))
                         species_group_trees[species][group]['best_tree'] = best_tree
@@ -1475,7 +1416,7 @@ class TreeMethods(object):
         """
         Extract the order of the strains from the phylogenetic trees using ete3
         :param species_group_trees: type DICT: Dictionary of Dictionary of species code: group name: dictionary of
-        tree type: absolute path to RAxML output tree
+        tree type: absolute path to output tree
         :return: species_group_order_dict: Dictionary of species code: group name: list of ordered strains
         """
         # Initialise the dictionary to store the ordered list of strain
@@ -1500,9 +1441,9 @@ class TreeMethods(object):
     @staticmethod
     def copy_trees(species_group_trees, tree_path):
         """
-        Copy the RAxML output trees to a common folder
+        Copy the output trees to a common folder
         :param species_group_trees: type DICT: Dictionary of Dictionary of species code: group name: dictionary of
-        tree type: absolute path to RAxML output tree
+        tree type: absolute path to output tree
         :param tree_path: type STR: Absolute path to folder into which tree files are to be copied
         """
         # Create the tree_path folder
@@ -1775,7 +1716,7 @@ class TreeMethods(object):
         Determine the number of strains that have a SNP at each group-specific position
         :param group_strain_snp_sequence: type DICT: Dictionary of species code: group name: strain name:
         reference chromosome: position: strain-specific sequence
-        :param species_group_best_ref: type DICT: Dictionary of species code: group name; best ref
+        :param species_group_best_ref: type DICT: Dictionary of species code: group name: best ref
         :return: species_group_snp_num_dict: Dictionary of species code: group name: reference chromosome:
         position: number of strains that have a SNP at that position
         """
@@ -1995,11 +1936,9 @@ class TreeMethods(object):
                                     if seq != compare_seq:
                                         snp_matrix[compare_strain][strain_name] += 1
                 # Write the snp_matrix dictionary to a .csv file
-                with open(os.path.join(matrix_path, '{species}_{group}_snp_matrix.csv'.format(
-                        species=species,
-                        group=group)), 'w') as matrix_file:
+                with open(os.path.join(matrix_path, 'snv_matrix.tsv'), 'w') as matrix_file:
                     # Initialise variables to store the header, and body strings
-                    header = 'Strain,'
+                    header = 'Strain\t'
                     body = str()
                     # A count that is incremented for each query strain, so that a list can be accessed by the
                     # current index
@@ -2010,7 +1949,7 @@ class TreeMethods(object):
                         if ref == consolidated_ref:
                             ref += ' (ref)'
                         # Update the header with the strain name
-                        header += '{ref},'.format(ref=ref)
+                        header += '{ref}\t'.format(ref=ref)
                         # Boolean on whether the name of the current query strain has been printed yet
                         print_strain = True
                         # Iterate through all the strains compared to this target strain
@@ -2022,13 +1961,13 @@ class TreeMethods(object):
                                 # Add the '(ref)' string when processing the reference strain
                                 if strain == consolidated_ref:
                                     strain += ' (ref)'
-                                body += '{query},'.format(query=strain)
+                                body += '{query}\t'.format(query=strain)
                                 # Set the boolean to False, so that the strain name isn't added again in this row
                                 print_strain = False
                                 # Increment the count for the next sample name
                                 count += 1
                             # Add the number of SNPs between the query and target genomes
-                            body += '{num_snps},'.format(num_snps=num_snps)
+                            body += '{num_snps}\t'.format(num_snps=num_snps)
                         # Add a newline character to separate each query strain
                         body += '\n'
                     header += '\n'
@@ -2081,7 +2020,7 @@ class TreeMethods(object):
         :param species_group_order_dict: type DICT: Dictionary of species code: group name: list of ordered strains
         :param species_group_snp_rank: type DICT: Dictionary of species code: group name: num strains with SNP:
         reference chromosome: SNP position
-        :param species_group_best_ref: type DICT: Dictionary of species code: group name; best ref
+        :param species_group_best_ref: type DICT: Dictionary of species code: group name: best ref
         :param group_strain_snp_sequence: type DICT: Dictionary of species code: group name: strain name:
         reference chromosome: position: strain-specific sequence
         :return: species_group_sorted_snps: Dictionary of species code: group name: reference chromosome: ordered
@@ -2137,7 +2076,7 @@ class TreeMethods(object):
         :param species_group_sorted_snps: type DICT: Dictionary of species code: group name: reference chromosome:
         ordered list of SNP positions
         :param species_group_order_dict: type DICT: Dictionary of species code: group name: list of ordered strains
-        :param species_group_best_ref: type DICT: Dictionary of species code: group name; best ref
+        :param species_group_best_ref: type DICT: Dictionary of species code: group name: best ref
         :param group_strain_snp_sequence: type DICT: Dictionary of species code: group name: strain name:
         reference chromosome: position: strain-specific sequence
         :param species_group_annotated_snps_dict: type DICT: Dictionary of species code: group name: reference
@@ -2160,10 +2099,8 @@ class TreeMethods(object):
                 # be added to the report, and cannot overwrite the previous results
                 current_col = 0
                 # Set the name of the summary table
-                summary_table = os.path.join(summary_path, '{species}_{group}_{molecule}_sorted_table.xlsx'
-                                             .format(species=species,
-                                                     group=group,
-                                                     molecule=molecule))
+                summary_table = os.path.join(summary_path, '{molecule}_snv_sorted_table.xlsx'
+                                             .format(molecule=molecule))
                 # Create an xlsxwriter workbook object
                 wb = xlsxwriter.Workbook(summary_table)
                 # Create a worksheet in the workbook
@@ -2180,7 +2117,7 @@ class TreeMethods(object):
                                first_col=1,
                                last_row=0,
                                last_col=total_snps,
-                               data='SNP Position',
+                               data='SNV Position',
                                cell_format=top_bold_courier)
                 # Adjust the width of the columns from the 2nd until the column corresponding to the total number
                 # of SNPs to 2

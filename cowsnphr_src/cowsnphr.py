@@ -100,10 +100,11 @@ class COWSNPhR(object):
                    threads=self.threads,
                    logfile=self.logfile)
         VCFMethods.parse_quast_report(quast_report_dict=quast_report_dict,
-                                      report_path=self.report_path)
+                                      summary_path=self.summary_path)
 
     def ref_file(self):
         """
+        Populate dictionaries with appropriate strain name: reference file details
         reference_strain_dict: Dictionary of strain name: absolute path to symlinked reference genome
         """
         self.ref_fasta = glob(os.path.join(self.ref_path, '*.fasta'))[0]
@@ -308,7 +309,8 @@ class COWSNPhR(object):
         if self.debug:
             logging.info('SNP prevalence')
             for ref_chrom, pos_dict in species_group_snp_num_dict['species']['group'].items():
-                print(ref_chrom, pos_dict)
+                if pos_dict:
+                    print(ref_chrom, pos_dict)
         logging.info('Determining amino acid sequence at SNP locations')
         self.translated_snp_residue_dict, self.ref_translated_snp_residue_dict = \
             TreeMethods.determine_aa_sequence(
@@ -378,6 +380,8 @@ class COWSNPhR(object):
             self.seq_path = os.path.abspath(os.path.join(seq_path))
         self.debug = debug
         SetupLogging(self.debug)
+        version = get_version()
+        logging.info('Welcome to {version}'.format(version=version))
         # Ensure that the path exists
         assert os.path.isdir(self.seq_path), 'Invalid path specified: {path}'.format(path=self.seq_path)
         logging.info('Supplied sequence path: \n{path}'.format(path=self.seq_path))
@@ -422,7 +426,7 @@ class COWSNPhR(object):
         self.fasta_path = os.path.join(self.seq_path, 'alignments')
         self.tree_path = os.path.join(self.seq_path, 'tree_files')
         self.summary_path = os.path.join(self.seq_path, 'summary_tables')
-        self.matrix_path = os.path.join(self.seq_path, 'snp_matrix')
+        self.matrix_path = os.path.join(self.seq_path, 'snv_matrix')
         self.logfile = os.path.join(self.seq_path, 'log')
         # Dictionary of degenerate IUPAC codes
         self.iupac = {
@@ -525,6 +529,7 @@ def main():
                         gpu=args.gpu,
                         debug=args.debug)
     cowsnphr.main()
+    logging.info('Analyses complete!')
 
 
 if __name__ == '__main__':

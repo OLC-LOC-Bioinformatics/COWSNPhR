@@ -42,6 +42,7 @@ conda update -q conda
 
 Add the necessary channels to your conda installation
 ```
+conda config --add channels olcbioinformatics
 conda config --add channels conda-forge
 conda config --add channels bioconda
 ```
