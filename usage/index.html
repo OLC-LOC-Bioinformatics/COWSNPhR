@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        
+        
+        <link rel="canonical" href="https://olc-bioinformatics.github.io/COWSNPhR/usage/">
+        <link rel="shortcut icon" href="../img/favicon.ico">
+        <title>Usage - COWSNPhr</title>
+        <link href="../css/bootstrap.min.css" rel="stylesheet">
+        <link href="../css/font-awesome.min.css" rel="stylesheet">
+        <link href="../css/base.css" rel="stylesheet">
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/styles/github.min.css">
+
+        <script src="../js/jquery-1.10.2.min.js" defer></script>
+        <script src="../js/bootstrap.min.js" defer></script>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/9.12.0/highlight.min.js"></script>
+        <script>hljs.initHighlightingOnLoad();</script> 
+    </head>
+
+    <body>
+        <div class="navbar fixed-top navbar-expand-lg navbar-dark bg-primary">
+            <div class="container">
+                <a class="navbar-brand" href="..">COWSNPhr</a>
+                <!-- Expander button -->
+                <button type="button" class="navbar-toggler" data-toggle="collapse" data-target="#navbar-collapse">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+
+                <!-- Expanded navigation -->
+                <div id="navbar-collapse" class="navbar-collapse collapse">
+                        <!-- Main navigation -->
+                        <ul class="nav navbar-nav">
+                            <li class="navitem">
+                                <a href=".." class="nav-link">Home</a>
+                            </li>
+                            <li class="navitem">
+                                <a href="../install/" class="nav-link">Installation</a>
+                            </li>
+                            <li class="navitem active">
+                                <a href="./" class="nav-link">Usage</a>
+                            </li>
+                        </ul>
+
+                    <ul class="nav navbar-nav ml-auto">
+                        <li class="nav-item">
+                            <a href="#" class="nav-link" data-toggle="modal" data-target="#mkdocs_search_modal">
+                                <i class="fa fa-search"></i> Search
+                            </a>
+                        </li>
+                            <li class="nav-item">
+                                <a rel="prev" href="../install/" class="nav-link">
+                                    <i class="fa fa-arrow-left"></i> Previous
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a rel="next" class="nav-link disabled">
+                                    Next <i class="fa fa-arrow-right"></i>
+                                </a>
+                            </li>
+                            <li class="nav-item">
+                                <a href="https://github.com/OLC-Bioinformatics/COWSNPhR/edit/master/docs/usage.md" class="nav-link"><i class="fa fa-github"></i> Edit on GitHub</a>
+                            </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="row">
+                    <div class="col-md-3"><div class="navbar-light navbar-expand-md bs-sidebar hidden-print affix" role="complementary">
+    <div class="navbar-header">
+        <button type="button" class="navbar-toggler collapsed" data-toggle="collapse" data-target="#toc-collapse" title="Table of Contents">
+            <span class="fa fa-angle-down"></span>
+        </button>
+    </div>
+
+    
+    <div id="toc-collapse" class="navbar-collapse collapse card bg-secondary">
+        <ul class="nav flex-column">
+            
+            <li class="nav-item" data-level="2"><a href="#required-arguments" class="nav-link">Required Arguments</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
+            <li class="nav-item" data-level="2"><a href="#optional-arguments" class="nav-link">Optional Arguments</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
+            <li class="nav-item" data-level="2"><a href="#example-outputs" class="nav-link">Example Outputs</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+            
+            <li class="nav-item" data-level="2"><a href="#interpreting-cowsnphr-results" class="nav-link">Interpreting COWSNPhR Results</a>
+              <ul class="nav flex-column">
+              </ul>
+            </li>
+        </ul>
+    </div>
+</div></div>
+                    <div class="col-md-9" role="main">
+
+<h2 id="required-arguments">Required Arguments</h2>
+<pre><code>-s SEQUENCE_PATH, --sequence_path SEQUENCE_PATH
+                      Path to folder containing sequencing reads
+-r REFERENCE_PATH, --reference_path REFERENCE_PATH
+                      Provide the location of the folder containing the reference genome FASTA
+</code></pre>
+
+<p>You can supply absolute or relative paths. Therefore, from your current working directory you could process 
+sequences in the <code>fastq</code> folder against the FASTA reference in the <code>ref</code> folder with either of the following two commands:</p>
+<p><code>cowsnphr -s fastq -r ref</code></p>
+<p><code>cowsnphr -s /path/to/fastq -r /path/to/ref</code></p>
+<h2 id="optional-arguments">Optional Arguments</h2>
+<p>COWSNPhR has a few optional arguments that allow you to modify its other parameters. Optional arguments are:</p>
+<pre><code>-h, --help            show this help message and exit
+-v, --version         show program's version number and exit
+-t THREADS, --threads THREADS
+                      Number of threads. Default is the number of cores in the system - 1
+-d, --debug           Enable debugging-level messages to be printed to the terminal
+-w WORKING_PATH, --working_path WORKING_PATH
+                      If you are running these analyses anywhere other than your $HOME directory, you will 
+                      need to provide the path to the drive e.g. /mnt/nas. This is necessary for the docker 
+                      calls to deepvariant. An additional volume will be mounted in the docker container: 
+                      e.g. -v /mnt/nas:/mnt/nas
+-m MASKFILE, --maskfile MASKFILE
+                      Supply a BED-formatted file with regions to mask. Generally, the format is: chrom 
+                      chromStart chromEnd where chrom is the name of the reference chromosome;
+                      chromStart is the Start position of the feature in standard chromosomal coordinates 
+                      (i.e. first base is 0); chromEnd is the End position of the feature in
+                      standard chromosomal coordinates
+-g, --gpu             Enable this flag if your workstation has a GPU compatible with deepvariant. 
+The program will use the deepvariant-gpu Docker image instead of the regular
+                      deepvariant image. Note that since I do not have a setup with a GPU, this is COMPLETELY UNTESTED!
+
+</code></pre>
+
+<h2 id="example-outputs">Example Outputs</h2>
+<p>Running the following command (note that the debug option has been enabled):</p>
+<p><code>cowsnphr.py -s /Bioinformatics/COWSNPhR/fastq -r /Bioinformatics/COWSNPhR/ref -d</code></p>
+<p>with two paired FASTQ samples (2017-MER-0551, 2017-MER-0554) against FASTA reference 2015-SEQ-1781</p>
+<p>If COWSNPhR is properly installed, you should see something similar to the following appear on your terminal:</p>
+<pre><code class="bash">2020-09-17 19:40:55 Welcome to COWSNPhR version 0.0.30
+2020-09-17 19:40:55 Supplied sequence path: 
+/Bioinformatics/COWSNPhR/fastq
+2020-09-17 19:40:55 Supplied reference path: 
+/Bioinformatics/COWSNPhR/ref
+2020-09-17 19:40:55 Locating FASTQ files, creating strain-specific working directories and symlinks to files
+2020-09-17 19:40:55 FASTQ files: 
+/Bioinformatics/COWSNPhR/fastq/2017-MER-0551_S1_L001_R1_001.fastq.gz
+/Bioinformatics/COWSNPhR/fastq/2017-MER-0551_S1_L001_R2_001.fastq.gz
+/Bioinformatics/COWSNPhR/fastq/2017-MER-0554_S1_L001_R1_001.fastq.gz
+/Bioinformatics/COWSNPhR/fastq/2017-MER-0554_S1_L001_R2_001.fastq.gz
+2020-09-17 19:40:55 Extracting paths to reference genomes
+2020-09-17 19:40:55 Running bowtie2 build
+2020-09-17 19:40:58 Creating .fai index file of 2015-SEQ-1781
+2020-09-17 19:40:58 Running bowtie2 reference mapping
+2020-09-17 19:58:25 Indexing sorted BAM files
+2020-09-17 19:58:30 Extracting unmapped reads
+2020-09-17 19:59:03 Attempting to assemble unmapped reads with SKESA
+2020-09-17 20:02:11 Running Quast on SKESA assemblies
+2020-09-17 20:02:23 Preparing files for SNP calling with deepvariant make_examples
+2020-09-17 20:35:56 Calling variants with deepvariant call_variants
+2020-09-17 20:38:28 Creating VCF files with deepvariant postprocess_variants
+2020-09-17 20:38:36 Copying gVCF files to common folder
+2020-09-17 20:38:36 Parsing gVCF files
+2020-09-17 20:38:37 Loading SNP positions
+2020-09-17 20:38:37 Performing SNP density filtering
+2020-09-17 20:38:37 Masking low complexity and repeat regions in reference genomes
+2020-09-17 20:38:47 Extracting coordinates to mask
+2020-09-17 20:38:47 Filtering SNPs in masked regions
+2020-09-17 20:38:47 Loading SNP sequences
+2020-09-17 20:38:47 Removing identical SNP positions from group
+2020-09-17 20:38:47 Creating multi-FASTA files of core SNPs
+2020-09-17 20:38:47 Summarising SNPs
+2020-09-17 20:39:02 Creating phylogenetic trees with FastTree
+2020-09-17 20:39:02 Parsing strain order from phylogenetic trees
+2020-09-17 20:39:02 Copying phylogenetic trees to /Bioinformatics/COWSNPhR/fastq/tree_files
+2020-09-17 20:39:02 Creating GenBank file for 2015-SEQ-1781 as required
+2020-09-17 20:44:15 Loading GenBank files for closest reference genomes
+2020-09-17 20:44:17 Annotating SNPs
+2020-09-17 20:44:17 Counting prevalence of SNPs
+2020-09-17 20:44:17 Determining amino acid sequence at SNP locations
+2020-09-17 20:44:17 Creating SNP matrix
+2020-09-17 20:44:17 Ranking SNPs based on prevalence
+2020-09-17 20:44:17 Sorting SNPs based on order of strains in phylogenetic trees
+2020-09-17 20:44:17 Creating summary tables
+2020-09-17 20:44:18 Analyses Complete!
+
+</code></pre>
+
+<h2 id="interpreting-cowsnphr-results">Interpreting COWSNPhR Results</h2>
+<p>COWSNPhR produces several output files:</p>
+<h5 id="core-snv-alignment">Core SNV alignment:</h5>
+<p><code>alignment.fasta</code> in the <code>fastq/alignments</code> folder</p>
+<p>This is a multi-FASTA of the extracted core SNVs, and is used by fasttree to generate phylogenetic trees</p>
+<p><img alt="alt text" src="../alignment.png" title="alignment.fasta" /></p>
+<h5 id="phylogenetic-tree">Phylogenetic tree:</h5>
+<p><code>best_tree.tre</code> in the <code>fastq/alignments</code> folder</p>
+<p>An approximately-maximum-likelihood phylogenetic tree generated by fasttree from the core SNV alignment</p>
+<p><img alt="alt text" src="../best_tree.png" title="best_tree.tre" /></p>
+<p>when viewed with figtree:</p>
+<p><img alt="alt text" src="../best_tree_viewer.png" title="best_tree.tre" /></p>
+<h5 id="snv-matrix">SNV Matrix</h5>
+<p><code>species_group_snv_matrix.tsv</code> in <code>fastq/snv_matrix</code></p>
+<p>A matrix displaying the number of SNVs observed between each sample in the analysis</p>
+<p><img alt="alt text" src="../snv_matrix.png" title="snv_matrix.tsv" /></p>
+<h5 id="assembly-report">Assembly report</h5>
+<p><code>assembly_report.tsv</code> in <code>fastq/summary_tables</code> folder</p>
+<p>Quast-generated report of the raw statistics of contigs created from unmapped reads</p>
+<p><img alt="alt text" src="../assembly_report.png" title="assembly_report.tsv" /></p>
+<h5 id="contig-summary">Contig Summary</h5>
+<p><code>contig_summary.tsv</code> in <code>fastq/summary_tables</code> folder</p>
+<p>Reference genome per-contig summary.</p>
+<ul>
+<li><code>Contig</code> - name of reference contig</li>
+<li><code>TotalLength</code> - length of contig</li>
+<li><code>TotalInvalid</code> - number of positions determined to be invalid (due to low quality, high density, user-provided mask, insufficient coverage, or low allele fraction)</li>
+<li><code>TotalValid</code> - number of valid positions (all positions that were not determined to be invalid)</li>
+<li><code>TotalValidInCore</code> - number of valid positions in the calculated core genome (composed of genome sequence that is present in all samples)</li>
+<li><code>PercentValidInCore</code> - <code>TotalValidInCore / TotalValid * 100</code></li>
+<li><code>PercentTotalValidInCore</code> - <code>TotalValidInCore / TotalLength * 100</code></li>
+</ul>
+<p>Note: this is a summary row at the bottom of the file</p>
+<p><img alt="alt text" src="../contig_summary.png" title="contig_summary.tsv" /></p>
+<h5 id="snv-summary">SNV Summary</h5>
+<p><code>snv_summary.tsv</code> in <code>fastq/summary_tables</code> folder</p>
+<p>Summary of every SNV position</p>
+<ul>
+<li><code>Contig</code> - name of reference contig</li>
+<li><code>Pos</code> - SNV position in reference contig</li>
+<li><code>Status</code> - position is valid/invalid</li>
+<li><code>Reason</code> - the reason(s) a position is invalid</li>
+<li><code>2015-SEQ-1781(ref)</code> - the sequence of the position in the reference genome</li>
+<li><code>2017-MER-0551</code> - the sequence of the position in the query genome</li>
+<li><code>2017-MER-0554</code> - the sequence of the position in the query genome</li>
+</ul>
+<p><img alt="alt text" src="../snv_summary.png" title="snv_summary.tsv" /></p>
+<h5 id="nucleotide-summary-table">Nucleotide Summary Table</h5>
+<p><code>nt_snv_sorted_table.xlsx</code> in <code>fastq/summary_tables</code></p>
+<p>Summary of the sorted nucleotide SNVs</p>
+<ul>
+<li><code>Strain</code> - name of the strain. The reference strain is the top strain</li>
+<li><code>SNV Position</code> - Contig name_position, reference sequence: colour-coded strain sequences, annotation of the region of the reference genome in which the SNV is located</li>
+</ul>
+<p><img alt="alt text" src="../nt_snv_sorted_table.png" title="nt_snv_sorted_table.xlsx" /></p>
+<h5 id="amino-acid-summary-table">Amino Acid Summary Table</h5>
+<p><code>aa_snv_sorted_table.xlsx</code> in <code>fastq/summary_tables</code></p>
+<p>Summary of the translated sorted SNVs</p>
+<ul>
+<li><code>Strain</code> - name of the strain. The reference strain is the top strain</li>
+<li><code>SNV Position</code> - Contig name_position, colour-coded reference sequence (NC indicates that the position is not in a coding region): colour-coded strain sequences, annotation of the region of the reference genome in which the SNV is located</li>
+</ul>
+<p><img alt="alt text" src="../aa_sorted_table.png" title="aa_snv_sorted_table.xlsx" /></p></div>
+            </div>
+        </div>
+
+        <footer class="col-md-12">
+            <hr>
+            <p>Documentation built with <a href="https://www.mkdocs.org/">MkDocs</a>.</p>
+        </footer>
+        <script>
+            var base_url = "..",
+                shortcuts = {"help": 191, "next": 78, "previous": 80, "search": 83};
+        </script>
+        <script src="../js/base.js" defer></script>
+        <script src="../search/main.js" defer></script>
+
+        <div class="modal" id="mkdocs_search_modal" tabindex="-1" role="dialog" aria-labelledby="searchModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="searchModalLabel">Search</h4>
+                <button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">&times;</span><span class="sr-only">Close</span></button>
+            </div>
+            <div class="modal-body">
+                <p>
+                    From here you can search these documents. Enter
+                    your search terms below.
+                </p>
+                <form>
+                    <div class="form-group">
+                        <input type="search" class="form-control" placeholder="Search..." id="mkdocs-search-query" title="Type search term here">
+                    </div>
+                </form>
+                <div id="mkdocs-search-results"></div>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div><div class="modal" id="mkdocs_keyboard_modal" tabindex="-1" role="dialog" aria-labelledby="keyboardModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h4 class="modal-title" id="keyboardModalLabel">Keyboard Shortcuts</h4>
+                <button type="button" class="close" data-dismiss="modal"><span aria-hidden="true">&times;</span><span class="sr-only">Close</span></button>
+            </div>
+            <div class="modal-body">
+              <table class="table">
+                <thead>
+                  <tr>
+                    <th style="width: 20%;">Keys</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="help shortcut"><kbd>?</kbd></td>
+                    <td>Open this help</td>
+                  </tr>
+                  <tr>
+                    <td class="next shortcut"><kbd>n</kbd></td>
+                    <td>Next page</td>
+                  </tr>
+                  <tr>
+                    <td class="prev shortcut"><kbd>p</kbd></td>
+                    <td>Previous page</td>
+                  </tr>
+                  <tr>
+                    <td class="search shortcut"><kbd>s</kbd></td>
+                    <td>Search</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="modal-footer">
+            </div>
+        </div>
+    </div>
+</div>
+
+    </body>
+</html>
