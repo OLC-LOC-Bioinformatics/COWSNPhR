@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 from olctools.accessoryFunctions.accessoryFunctions import SetupLogging
-from cowsnphr.vcf_methods import VCFMethods
-from cowsnphr.tree_methods import TreeMethods
+from cowsnphr_src.vcf_methods import VCFMethods
+from cowsnphr_src.tree_methods import TreeMethods
 from argparse import ArgumentParser
 from pathlib import Path
 import multiprocessing

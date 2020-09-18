@@ -1,148 +1,200 @@
-## Example Dataset
+## Required Arguments
 
-An example dataset has been uploaded to FigShare. You can download it to your current working directory with the following command:
-
-`wget https://ndownloader.figshare.com/files/9972709 && tar xf 9972709`
-
-This example dataset contains two different serotypes of _Escherichia coli_ mixed together - it's about 80/20 split of O103 and O157. Contamination like this is difficult to detect
-with regular tools - it's possible to pick up that it's two different strains, but it can be finicky. ConFindr, however, has no difficulty picking up the fact that this sample is contaminated.
-
-In order to have ConFindr analyze this sample, the parameters you need to provide are:
-
-- `-i, --input_directory`: The path to a directory containing the reads, in FASTQ format, that you want analyzed. If you're using the example dataset, you'll want to enter `example-data`
-- `-o, --output_name`: The base name for your output. If you put `output` for this parameter, a folder called `output` will be created, and a file called `confindr_report.csv` with contamination
-information will be created in this folder
-
-So, if the `example-data` folder were downloaded to your current working directory and you want to have an output folder called `output`, the command to run ConFindr would be:
-
-`confindr.py -i example-data -o output`
-
-You can use absolute or relative paths, and trailing slashes are also acceptable for the directories specified.
-If ConFindr is properly installed, you should see something similar to the following appear on your terminal:
-
-```bash
-  2019-04-02 15:06:04  Welcome to ConFindr 0.7.0! Beginning analysis of your samples... 
-  2019-04-02 15:06:04  Could not find Escherichia_db_cgderived.fasta 
-  2019-04-02 15:06:04  Could not find Listeria_db_cgderived.fasta 
-  2019-04-02 15:06:04  Could not find Salmonella_db_cgderived.fasta 
-  2019-04-02 15:06:04  Could not find refseq.msh 
-  2019-04-02 15:06:04  Databases not present - downloading basic databases now... 
-  2019-04-02 15:06:04  Downloading mash refseq sketch... 
-  2019-04-02 15:06:07  Downloading cgMLST-derived data for Escherichia, Salmonella, and Listeria... 
-  2019-04-02 15:06:12  Did not find rMLST databases, if you want to use ConFindr on genera other than Listeria, Salmonella, and Escherichia, you'll need to download them. Instructions are available at https://olc-bioinformatics.github.io/ConFindr/install/#downloading-confindr-databases
- 
-  2019-04-02 15:06:12  Beginning analysis of sample example... 
-  2019-04-02 15:06:12  Checking for cross-species contamination... 
-  2019-04-02 15:06:29  Extracting conserved core genes... 
-  2019-04-02 15:06:37  Quality trimming... 
-  2019-04-02 15:06:38  Detecting contamination... 
-  2019-04-02 15:07:05  Done! Number of contaminating SNVs found: 214
- 
-  2019-04-02 15:07:05  Contamination detection complete! 
+```
+-s SEQUENCE_PATH, --sequence_path SEQUENCE_PATH
+                      Path to folder containing sequencing reads
+-r REFERENCE_PATH, --reference_path REFERENCE_PATH
+                      Provide the location of the folder containing the reference genome FASTA
 ```
 
-The run shouldn't take too long - depending on how powerful your machine is, it should be done in
-one to two minutes (slightly longer if an *Escherichia* specific database has not yet been set up).
-Once the run is done, you'll be able to inspect your results. Take a look at `output/confindr_report.csv`:
-The `ContamStatus` column should read `True`, and the `NumContamSNVs` column should have a value of something close to 200.
+You can supply absolute or relative paths. Therefore, from your current working directory you could process 
+sequences in the `fastq` folder against the FASTA reference in the `ref` folder with either of the following two commands:
 
-In any future uses of ConFindr, databases will not need to be re-downloaded.
+`cowsnphr -s fastq -r ref`
 
-## Interpreting ConFindr Results
-
-The results file that ConFindr produces is in comma-separated value (CSV) format, which can be opened by any spreadsheet application (Excel, LibreOffice, etc.) or your favorite text editor.
-
-The file has the following headers: `Sample`, `Genus`, `NumContamSNVs`, `ContamStatus`, `PercentContam`, `PercentContamStandardDeviation`, and `BasesExamined`. Of these, ContamStatus is the most important - it will be `True` if a sample
-is contaminated, and `False` if a sample is not contaminated. Detailed descriptions of each header follow.
-
-- `Sample`: The name of the sample. ConFindr will take everything before the first underscore (\_) character to be the name of the sample, as done with samples coming from an Illumina MiSeq.
-- `Genus`: The genus that ConFindr thinks your sample is. If ConFindr couldn't figure out what genus your sample is from, this will be NA.
-If multiple genera were found, they will all be listed here, separated by a `:`
-- `NumContamSNVs`: The number of times ConFindr found sites with more than one base present.
-- `ContamStatus`: The most important of all! Will read `True` if contamination is present in the sample, and `False` if contamination is not present. The result will be `True` if any of the following conditions are met:
-	- More than 1 contaminating SNV per 10000 base pairs examined was found.
-	- There is cross contamination between genera.
-- `PercentContam`: Based on the depth of the minor variant for sites with multiple bases, ConFindr guesses
-at what percent of your reads come from a contaminant. The more sequencing depth you have, the more accurate this will
-get. For lower levels of contamination (around 5 percent) this tends to get overestimated, but the number gets more accurate as
-contamination level increases, as well as sequencing depth.
-- `PercentContamStandardDeviation`: The standard deviation of the percentage contamination estimate. Very high values may
-indicate something strange is going on.
-- `BasesExamined`: The number of bases ConFindr examined when making the contamination call. Will usally be around 20kb for rMLST databases,
- and will vary when other databases are used.
-- `DatabaseDownloadDate`: Date that rMLST databases were downloaded, if you have them. As these are curated and updated regularly,
-it's a good idea to re-run `confindr_database_setup` every now and then.
-
-ConFindr will also produce two CSV files for each sample - one called `samplename_contamination.csv`, which shows the contaminating
-sites, and one called `samplename_rmlst.csv`, which shows ConFindr's guess at which allele is present for each rMLST gene.
-
-## Using ConFindr in a Python Script
-
-In the event you'd rather integrate ConFindr into a script than run from the command line, here's how:
-
-```python
-from confindr_src import confindr
-
-# Find read files.
-paired_reads = confindr.find_paired_reads('path_to_fastq_folder', forward_id='_R1', reverse_id='_R2')
-# Run confindr. This assumes that you have already downloaded the databases. If you haven't,
-# you can run confindr.check_for_databases_and_download(database_location='path/where/you/want/to/download, tmpdir='a/tmp/dir')
-for pair in paired_reads:
-    confindr.find_contamination(pair=pair,
-                                forward_id='_R1', # change if yours is different
-                                threads=4, 
-                                output_folder='path/to/output',
-                                databases_folder='path/to/databases')
-                                
-```
-
-## Using Schemes other than rMLST
-
-As of ConFindr 0.4.4, ConFindr has the option to use a cgMLST scheme instead of an rMLST scheme for increased
-contamination detection sensitivity. This hasn't been tested extensively, but looks to be working. Runtime is
-increased by a factor of 2 or 3 compared to running against rMLST genes. 
-
-To use this option, you'll need a a cgMLST FASTA file - all FASTA headers should be in format >genename_allele
-
-In order to decrease computation time, clustering the cgMLST FASTA before running is recommended. CD-HIT on default
-parameters does this fairly well.
-
-cgMLST files that are already clustered are available for _Salmonella_ and _Escherichia_. To get them:
-
-Escherichia: `wget 'https://scist01.blob.core.windows.net/olc/Escherichia_cgmlst.fasta?sp=r&st=2020-07-15T13:17:25Z&se=2029-07-15T21:17:25Z&spr=https&sv=2019-10-10&sr=b&sig=zF01kDCgmsmBWJ0cSpyfYi6CLldIjalwU2RgsswKmmI%3D' -O Escherichia_cgmlst.fasta`
-
-Salmonella: `wget 'https://scist01.blob.core.windows.net/olc/Salmonella_cgmlst.fasta?sp=r&st=2020-07-15T13:13:16Z&se=2029-07-15T21:13:16Z&spr=https&sv=2019-10-10&sr=b&sig=ncG%2F5MzKt57p1BUdyFtnhJUk9Yfi6x3rFhSQWPlT2Ek%3D' -O Salmonella_cgmlst.fasta`
-
-When using a cgMLST database, ConFindr will use the provided scheme for all samples regardless of genus.
-
-Actually calling ConFindr with cgMLST:
-
-`confindr.py -i folder-with-Escherichia-files -o cgmlst-output -cgmlst /path/to/Escherichia_cgmlst.fasta`
-
+`cowsnphr -s /path/to/fastq -r /path/to/ref`
 
 ## Optional Arguments
 
-ConFindr has a few optional arguments that allow you to modify its other parameters. Optional arguments are:
+COWSNPhR has a few optional arguments that allow you to modify its other parameters. Optional arguments are:
 
-- `-t, --threads`: The number of threads to run ConFindr analysis with. The default is to use all threads available on your machine, and ConFindr scales very well with more threads, so it's recommended that this option be left at the default unless you need the computational resources for something else.
-- `-d`, --databases`: Path to ConFindr databases. These will be downloaded automatically if not present.
-- `-k`, --keep_files`: Set this flag to keep intermediate files. Useful if you want to do manual inspection of the BAM files
-that ConFindr creates, which are deleted by default.
-- `-fid, --forward_id`: The identifier for forward reads in your input FASTQ folder. By default, this is `_R1`. If you follow a different naming scheme, this is the parameter to change.
-- `-rid, --reverse_id`: The identifier for reverse reads in your input FASTQ folder. By default, this is `_R2`. If you follow a different naming scheme, this is the parameter to change. 
-- `-v, --version`: Display ConFindr version and exit.
-- `-verbosity, --verbosity`: How much you want printed to the screen. Choose `debug` to get some extra, or `warning` to
-get almost nothing. Default is `info`.
-- `-b`, `--base_cutoff`: The number of high-quality bases needed to call a site as multiallelic, and therefore 
-contributing to contamination. Defaults to 2, which is usually sensitive without producing false positives.
-If dealing with high depth samples, adding the `-bf` parameter set to around `0.05` is likely to be helpful in reducing
-false positives.
-- `-bf`, `--base_fraction_cutoff`: The proportion of high-quality bases needed to call a site as multiallelic, and therefore 
-contributing to contamination. Must be between 0 and 1. Not used by default.
-- `-q`, `--quality_cutoff`: The phred score a base needs to have before it's considered
-trustworthy enough to contribute to a site being multiallelic. Defaults to 20, which should
-be suitable for most purposes. 
-- `--rmlst`: By default, ConFindr will use custom core-gene derived datasets for _Escherichia_, _Listeria_, and _Salmonella_
-instead of rMLST. Activate this flag to force use of rMLST genes for all genera.
-- `--cross_details`: By default, when ConFindr finds cross-contaminated samples it stops analysis. Activate
-this flag to have analysis of number of cSNVs continue in order to get an estimate of percentage contamination.
+```
+-h, --help            show this help message and exit
+-v, --version         show program's version number and exit
+-t THREADS, --threads THREADS
+                      Number of threads. Default is the number of cores in the system - 1
+-d, --debug           Enable debugging-level messages to be printed to the terminal
+-w WORKING_PATH, --working_path WORKING_PATH
+                      If you are running these analyses anywhere other than your $HOME directory, you will 
+                      need to provide the path to the drive e.g. /mnt/nas. This is necessary for the docker 
+                      calls to deepvariant. An additional volume will be mounted in the docker container: 
+                      e.g. -v /mnt/nas:/mnt/nas
+-m MASKFILE, --maskfile MASKFILE
+                      Supply a BED-formatted file with regions to mask. Generally, the format is: chrom 
+                      chromStart chromEnd where chrom is the name of the reference chromosome;
+                      chromStart is the Start position of the feature in standard chromosomal coordinates 
+                      (i.e. first base is 0); chromEnd is the End position of the feature in
+                      standard chromosomal coordinates
+-g, --gpu             Enable this flag if your workstation has a GPU compatible with deepvariant. 
+The program will use the deepvariant-gpu Docker image instead of the regular
+                      deepvariant image. Note that since I do not have a setup with a GPU, this is COMPLETELY UNTESTED!
+
+```
+
+## Example Outputs
+
+Running the following command (note that the debug option has been enabled):
+
+`cowsnphr.py -s /Bioinformatics/COWSNPhR/fastq -r /Bioinformatics/COWSNPhR/ref -d`
+
+with two paired FASTQ samples (2017-MER-0551, 2017-MER-0554) against FASTA reference 2015-SEQ-1781
+
+If COWSNPhR is properly installed, you should see something similar to the following appear on your terminal:
+
+```bash
+2020-09-17 19:40:55 Welcome to COWSNPhR version 0.0.30
+2020-09-17 19:40:55 Supplied sequence path: 
+/Bioinformatics/COWSNPhR/fastq
+2020-09-17 19:40:55 Supplied reference path: 
+/Bioinformatics/COWSNPhR/ref
+2020-09-17 19:40:55 Locating FASTQ files, creating strain-specific working directories and symlinks to files
+2020-09-17 19:40:55 FASTQ files: 
+/Bioinformatics/COWSNPhR/fastq/2017-MER-0551_S1_L001_R1_001.fastq.gz
+/Bioinformatics/COWSNPhR/fastq/2017-MER-0551_S1_L001_R2_001.fastq.gz
+/Bioinformatics/COWSNPhR/fastq/2017-MER-0554_S1_L001_R1_001.fastq.gz
+/Bioinformatics/COWSNPhR/fastq/2017-MER-0554_S1_L001_R2_001.fastq.gz
+2020-09-17 19:40:55 Extracting paths to reference genomes
+2020-09-17 19:40:55 Running bowtie2 build
+2020-09-17 19:40:58 Creating .fai index file of 2015-SEQ-1781
+2020-09-17 19:40:58 Running bowtie2 reference mapping
+2020-09-17 19:58:25 Indexing sorted BAM files
+2020-09-17 19:58:30 Extracting unmapped reads
+2020-09-17 19:59:03 Attempting to assemble unmapped reads with SKESA
+2020-09-17 20:02:11 Running Quast on SKESA assemblies
+2020-09-17 20:02:23 Preparing files for SNP calling with deepvariant make_examples
+2020-09-17 20:35:56 Calling variants with deepvariant call_variants
+2020-09-17 20:38:28 Creating VCF files with deepvariant postprocess_variants
+2020-09-17 20:38:36 Copying gVCF files to common folder
+2020-09-17 20:38:36 Parsing gVCF files
+2020-09-17 20:38:37 Loading SNP positions
+2020-09-17 20:38:37 Performing SNP density filtering
+2020-09-17 20:38:37 Masking low complexity and repeat regions in reference genomes
+2020-09-17 20:38:47 Extracting coordinates to mask
+2020-09-17 20:38:47 Filtering SNPs in masked regions
+2020-09-17 20:38:47 Loading SNP sequences
+2020-09-17 20:38:47 Removing identical SNP positions from group
+2020-09-17 20:38:47 Creating multi-FASTA files of core SNPs
+2020-09-17 20:38:47 Summarising SNPs
+2020-09-17 20:39:02 Creating phylogenetic trees with FastTree
+2020-09-17 20:39:02 Parsing strain order from phylogenetic trees
+2020-09-17 20:39:02 Copying phylogenetic trees to /Bioinformatics/COWSNPhR/fastq/tree_files
+2020-09-17 20:39:02 Creating GenBank file for 2015-SEQ-1781 as required
+2020-09-17 20:44:15 Loading GenBank files for closest reference genomes
+2020-09-17 20:44:17 Annotating SNPs
+2020-09-17 20:44:17 Counting prevalence of SNPs
+2020-09-17 20:44:17 Determining amino acid sequence at SNP locations
+2020-09-17 20:44:17 Creating SNP matrix
+2020-09-17 20:44:17 Ranking SNPs based on prevalence
+2020-09-17 20:44:17 Sorting SNPs based on order of strains in phylogenetic trees
+2020-09-17 20:44:17 Creating summary tables
+2020-09-17 20:44:18 Analyses Complete!
+
+```
+
+## Interpreting COWSNPhR Results
+
+COWSNPhR produces several output files:
+
+#####Core SNV alignment:
+
+`alignment.fasta` in the `fastq/alignments` folder
+
+This is a multi-FASTA of the extracted core SNVs, and is used by fasttree to generate phylogenetic trees
+
+![alt text](alignment.png "alignment.fasta")
+
+#####Phylogenetic tree:
+
+`best_tree.tre` in the `fastq/alignments` folder
+
+An approximately-maximum-likelihood phylogenetic tree generated by fasttree from the core SNV alignment
+
+![alt text](best_tree.png "best_tree.tre")
+
+when viewed with figtree:
+
+![alt text](best_tree_viewer.png "best_tree.tre")
+
+
+##### SNV Matrix
+
+`species_group_snv_matrix.tsv` in `fastq/snv_matrix`
+
+A matrix displaying the number of SNVs observed between each sample in the analysis
+
+![alt text](snv_matrix.png "snv_matrix.tsv")
+
+
+##### Assembly report
+
+`assembly_report.tsv` in `fastq/summary_tables` folder
+
+Quast-generated report of the raw statistics of contigs created from unmapped reads
+
+![alt text](assembly_report.png "assembly_report.tsv")
+
+##### Contig Summary
+
+`contig_summary.tsv` in `fastq/summary_tables` folder
+
+Reference genome per-contig summary.
+
+- `Contig` - name of reference contig
+- `TotalLength` - length of contig
+- `TotalInvalid` - number of positions determined to be invalid (due to low quality, high density, user-provided mask, insufficient coverage, or low allele fraction)
+- `TotalValid` - number of valid positions (all positions that were not determined to be invalid)
+- `TotalValidInCore` - number of valid positions in the calculated core genome (composed of genome sequence that is present in all samples)
+- `PercentValidInCore` - `TotalValidInCore / TotalValid * 100`
+- `PercentTotalValidInCore` - `TotalValidInCore / TotalLength * 100`
+
+Note: this is a summary row at the bottom of the file
+
+![alt text](contig_summary.png "contig_summary.tsv")
+
+##### SNV Summary
+
+`snv_summary.tsv` in `fastq/summary_tables` folder
+
+Summary of every SNV position
+
+- `Contig` - name of reference contig
+- `Pos` - SNV position in reference contig
+- `Status` - position is valid/invalid
+- `Reason` - the reason(s) a position is invalid
+- `2015-SEQ-1781(ref)` - the sequence of the position in the reference genome
+- `2017-MER-0551` - the sequence of the position in the query genome
+- `2017-MER-0554` - the sequence of the position in the query genome
+
+![alt text](snv_summary.png "snv_summary.tsv")
+
+##### Nucleotide Summary Table
+
+`nt_snv_sorted_table.xlsx` in `fastq/summary_tables`
+
+Summary of the sorted nucleotide SNVs
+
+- `Strain` - name of the strain. The reference strain is the top strain
+- `SNV Position` - Contig name_position, reference sequence: colour-coded strain sequences, annotation of the region of the reference genome in which the SNV is located
+
+![alt text](nt_snv_sorted_table.png "nt_snv_sorted_table.xlsx")
+
+##### Amino Acid Summary Table
+
+`aa_snv_sorted_table.xlsx` in `fastq/summary_tables`
+
+Summary of the translated sorted SNVs
+
+- `Strain` - name of the strain. The reference strain is the top strain
+- `SNV Position` - Contig name_position, colour-coded reference sequence (NC indicates that the position is not in a coding region): colour-coded strain sequences, annotation of the region of the reference genome in which the SNV is located
+
+![alt text](aa_sorted_table.png "aa_snv_sorted_table.xlsx")
