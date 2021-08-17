@@ -386,7 +386,7 @@ class COWSNPhR(object):
         assert os.path.isdir(self.seq_path), 'Invalid path specified: {path}'.format(path=self.seq_path)
         logging.info('Supplied sequence path: \n{path}'.format(path=self.seq_path))
         # Initialise class variables
-        self.threads = threads
+        self.threads = int(threads)
         self.report_path = os.path.join(self.seq_path, 'reports')
         if ref_path.startswith('~'):
             self.ref_path = os.path.abspath(os.path.expanduser(os.path.join(ref_path)))
