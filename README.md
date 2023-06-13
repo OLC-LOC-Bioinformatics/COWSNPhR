@@ -9,12 +9,6 @@ Documentation is available [here](https://OLC-LOC-Bioinformatics.github.io/COWSN
 
 ### Quickstart
 
-You must have docker installed, and be a member of the 'docker' users group
-
-Download the DeepVariant image
-
-`docker pull gcr.io/deepvariant-docker/deepvariant:1.0.0`
-
 Install the conda package
 
 `conda install -c olcbioinformatics cowsnphr`
