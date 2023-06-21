@@ -41,8 +41,10 @@ class VCFMethods(object):
         :return strain_dict: dictionary of the absolute paths to the base strain name: FASTQ files
         """
         # As filer returns a set of the names, transform this set into a sorted list
-        strain_dict = filer(filelist=fastq_files,
-                            returndict=True)
+        strain_dict = filer(
+            filelist=fastq_files,
+            returndict=True
+        )
         return strain_dict
 
     @staticmethod
@@ -63,7 +65,9 @@ class VCFMethods(object):
         return strain_name_dict
 
     @staticmethod
-    def file_link(strain_folder_dict, strain_name_dict):
+    def file_link(
+            strain_folder_dict,
+            strain_name_dict):
         """
         Create folders for each strain. Create relative symlinks to the original FASTQ files from within the folder
         :param strain_folder_dict: type DICT: Dictionary of strain folder path: FASTQ files
@@ -79,9 +83,11 @@ class VCFMethods(object):
             # associated with each strain
             for fastq_file in strain_folder_dict[strain_folder]:
                 # Create relative symlinks between the original FASTQ files and the strain folder
-                symlink_path = relative_symlink(src_file=fastq_file,
-                                                output_dir=strain_folder,
-                                                export_output=True)
+                symlink_path = relative_symlink(
+                    src_file=fastq_file,
+                    output_dir=strain_folder,
+                    export_output=True
+                )
                 # Add the absolute path of the symlink to the dictionary
                 try:
                     strain_fastq_dict[strain_name].append(symlink_path)
@@ -90,7 +96,10 @@ class VCFMethods(object):
         return strain_fastq_dict
 
     @staticmethod
-    def run_reformat_reads(strain_fastq_dict, strain_name_dict, logfile):
+    def run_reformat_reads(
+            strain_fastq_dict,
+            strain_name_dict,
+            logfile):
         """
         Run reformat.sh from the BBMAP suite of tools. This will create histograms of the number of reads with a
         specific phred quality score, as well the number of reads of a specific length
@@ -131,11 +140,13 @@ class VCFMethods(object):
                 if not os.path.isfile(length_histo):
                     out, err = run_subprocess(command=reformat_cmd)
                     # Write the stdout, and stderr to the main logfile, as well as to the strain-specific logs
-                    write_to_logfile(out=out,
-                                     err=err,
-                                     logfile=logfile,
-                                     samplelog=os.path.join(strain_folder, 'log.out'),
-                                     sampleerr=os.path.join(strain_folder, 'log.err'))
+                    write_to_logfile(
+                        out=out,
+                        err=err,
+                        logfile=logfile,
+                        samplelog=os.path.join(strain_folder, 'log.out'),
+                        sampleerr=os.path.join(strain_folder, 'log.err')
+                    )
                 # Increase the file numbering count
                 count += 1
                 # Append the absolute path to the list of paths
@@ -211,7 +222,7 @@ class VCFMethods(object):
             total_count = 0
             total_count_length = 0
             # The average read quality is calculated on a per-sample, rather than a per-read set basis. So, the
-            # variables are initialised outside of the histo loop
+            # variables are initialised outside the histo loop
             for length_histo in length_histos:
                 with open(length_histo, 'r') as histo:
                     # Skip the header
@@ -253,7 +264,10 @@ class VCFMethods(object):
         return strain_fastq_size_dict
 
     @staticmethod
-    def call_mash_sketch(strain_fastq_dict, strain_name_dict, logfile):
+    def call_mash_sketch(
+            strain_fastq_dict,
+            strain_name_dict,
+            logfile):
         """
         Run MASH sketch on the provided FASTQ files
         :param strain_fastq_dict: type DICT: Dictionary of strain name: list of absolute path(s) of FASTQ file(s)
@@ -283,17 +297,24 @@ class VCFMethods(object):
             if not os.path.isfile(fastq_sketch):
                 out, err = run_subprocess(command=mash_sketch_command)
                 # Write the stdout, and stderr to the main logfile, as well as to the strain-specific logs
-                write_to_logfile(out=out,
-                                 err=err,
-                                 logfile=logfile,
-                                 samplelog=os.path.join(strain_folder, 'log.out'),
-                                 sampleerr=os.path.join(strain_folder, 'log.err'))
+                write_to_logfile(
+                    out=out,
+                    err=err,
+                    logfile=logfile,
+                    samplelog=os.path.join(strain_folder, 'log.out'),
+                    sampleerr=os.path.join(strain_folder, 'log.err')
+                )
             # Populate the dictionary with the absolute path of the sketch file
             fastq_sketch_dict[strain_name] = fastq_sketch
         return fastq_sketch_dict
 
     @staticmethod
-    def call_mash_dist(strain_fastq_dict, strain_name_dict, fastq_sketch_dict, ref_sketch_file, logfile):
+    def call_mash_dist(
+            strain_fastq_dict,
+            strain_name_dict,
+            fastq_sketch_dict,
+            ref_sketch_file,
+            logfile):
         """
         Run a MASH dist of a pre-sketched set of FASTQ reads against the custom MASH sketch file of the reference
         genomes
@@ -323,11 +344,13 @@ class VCFMethods(object):
                         out=out_tab)
             if not os.path.isfile(out_tab):
                 out, err = run_subprocess(command=mash_dist_command)
-                write_to_logfile(out=out,
-                                 err=err,
-                                 logfile=logfile,
-                                 samplelog=os.path.join(strain_folder, 'log.out'),
-                                 sampleerr=os.path.join(strain_folder, 'log.err'))
+                write_to_logfile(
+                    out=out,
+                    err=err,
+                    logfile=logfile,
+                    samplelog=os.path.join(strain_folder, 'log.out'),
+                    sampleerr=os.path.join(strain_folder, 'log.err')
+                )
             strain_mash_outputs[strain_name] = out_tab
         return strain_mash_outputs
 
@@ -349,7 +372,10 @@ class VCFMethods(object):
         return accession_species_dict
 
     @staticmethod
-    def mash_best_ref(mash_dist_dict, accession_species_dict, min_matches):
+    def mash_best_ref(
+            mash_dist_dict,
+            accession_species_dict,
+            min_matches):
         """
         Parse the MASH dist output table to determine the closest reference sequence, as well as the total
         number of matching hashes the strain and that reference genome share
@@ -386,7 +412,9 @@ class VCFMethods(object):
         return strain_best_ref_dict, strain_ref_matches_dict, strain_species_dict
 
     @staticmethod
-    def reference_folder(strain_best_ref_dict, dependency_path):
+    def reference_folder(
+            strain_best_ref_dict,
+            dependency_path):
         """
         Create a dictionary of base strain name to the folder containing all the closest reference genome dependency
         files
@@ -410,7 +438,11 @@ class VCFMethods(object):
         return reference_link_path_dict, reference_link_dict
 
     @staticmethod
-    def index_ref_genome(reference_link_path_dict, dependency_path, logfile, reference_mapper):
+    def index_ref_genome(
+            reference_link_path_dict,
+            dependency_path,
+            logfile,
+            reference_mapper):
         """
         Use bowtie2-build (or bwa index) to index the reference genomes
         :param reference_link_path_dict: type DICT: Dictionary of base strain name: reference folder path
@@ -442,16 +474,20 @@ class VCFMethods(object):
             if not os.path.isfile(index_file):
                 out, err = run_subprocess(build_cmd)
                 # Write the stdout and stderr to the log files
-                write_to_logfile(out=out,
-                                 err=err,
-                                 logfile=logfile)
+                write_to_logfile(
+                    out=out,
+                    err=err,
+                    logfile=logfile)
             # Populate the dictionaries
             strain_reference_abs_path_dict[strain_name] = ref_abs_path
             strain_reference_dep_path_dict[strain_name] = os.path.dirname(ref_abs_path)
         return strain_mapper_index_dict, strain_reference_abs_path_dict, strain_reference_dep_path_dict
 
     @staticmethod
-    def faidx_ref_genome(reference_link_path_dict, dependency_path, logfile):
+    def faidx_ref_genome(
+            reference_link_path_dict,
+            dependency_path,
+            logfile):
         """
         Run samtools faidx on the reference file
         :param reference_link_path_dict: type DICT: Dictionary of base strain name: reference folder path
@@ -464,14 +500,19 @@ class VCFMethods(object):
             faidx_command = 'samtools faidx {ref}'.format(ref=ref_fasta)
             if not os.path.isfile(ref_fasta + '.fai'):
                 out, err = run_subprocess(command=faidx_command)
-                write_to_logfile(out='{cmd}\n{out}'.format(cmd=faidx_command,
-                                                           out=out),
-                                 err=err,
-                                 logfile=logfile)
+                write_to_logfile(
+                    out=f'{faidx_command}\n{out}',
+                    err=err,
+                    logfile=logfile)
 
     @staticmethod
-    def map_ref_genome(strain_fastq_dict, strain_name_dict, strain_mapper_index_dict, threads, logfile,
-                       reference_mapper):
+    def map_ref_genome(
+            strain_fastq_dict,
+            strain_name_dict,
+            strain_mapper_index_dict,
+            threads,
+            logfile,
+            reference_mapper):
         """
         Create a sorted BAM file by mapping the strain-specific FASTQ reads against the closest reference genome with
         bowtie2, converting the SAM outputs from bowtie2 to BAM format with samtools view, and sorting the BAM file
@@ -523,11 +564,12 @@ class VCFMethods(object):
                 if not os.path.isfile(sorted_bam):
                     out, err = run_subprocess(map_cmd)
                     # Write STDOUT and STDERR to the logfile
-                    write_to_logfile(out=out,
-                                     err=err,
-                                     logfile=logfile,
-                                     samplelog=os.path.join(strain_folder, 'log.out'),
-                                     sampleerr=os.path.join(strain_folder, 'log.err'))
+                    write_to_logfile(
+                        out=out,
+                        err=err,
+                        logfile=logfile,
+                        samplelog=os.path.join(strain_folder, 'log.out'),
+                        sampleerr=os.path.join(strain_folder, 'log.err'))
                 # Populate the dictionary with the absolute path to the sorted BAM file
                 strain_sorted_bam_dict[strain_name] = sorted_bam
             except KeyError:
@@ -535,7 +577,11 @@ class VCFMethods(object):
         return strain_sorted_bam_dict
 
     @staticmethod
-    def extract_unmapped_reads(strain_sorted_bam_dict, strain_name_dict, threads, logfile):
+    def extract_unmapped_reads(
+            strain_sorted_bam_dict,
+            strain_name_dict,
+            threads,
+            logfile):
         """
         Use samtools bam2fq to extract all unmapped reads from the sorted BAM file into a single FASTQ file
         :param strain_sorted_bam_dict: type DICT: Dictionary of strain name: absolute path to sorted BAM file
@@ -560,18 +606,23 @@ class VCFMethods(object):
             if not os.path.isfile(unmapped_reads):
                 out, err = run_subprocess(unmapped_cmd)
                 # Write STDOUT and STDERR to the logfile
-                write_to_logfile(out=out,
-                                 err=err,
-                                 logfile=logfile,
-                                 samplelog=os.path.join(strain_folder, 'log.out'),
-                                 sampleerr=os.path.join(strain_folder, 'log.err'))
+                write_to_logfile(
+                    out=out,
+                    err=err,
+                    logfile=logfile,
+                    samplelog=os.path.join(strain_folder, 'log.out'),
+                    sampleerr=os.path.join(strain_folder, 'log.err'))
             strain_unmapped_reads_dict[strain_name] = unmapped_reads
         return strain_unmapped_reads_dict
 
     @staticmethod
-    def assemble_unmapped_reads(strain_unmapped_reads_dict, strain_name_dict, threads, logfile):
+    def assemble_unmapped_reads(
+            strain_unmapped_reads_dict,
+            strain_name_dict,
+            threads,
+            logfile):
         """
-        Run SKESA to attempt to assembled any unmapped reads
+        Run SKESA to attempt to assemble any unmapped reads
         :param strain_unmapped_reads_dict: type DICT: Dictionary of strain name: absolute path to unmapped reads
         FASTQ file
         :param strain_name_dict: type DICT: Dictionary of strain name: strain-specific working directory
@@ -599,17 +650,23 @@ class VCFMethods(object):
             if not os.path.isfile(skesa_assembly_file):
                 out, err = run_subprocess(skesa_cmd)
                 # Write STDOUT and STDERR to the logfile
-                write_to_logfile(out=out,
-                                 err=err,
-                                 logfile=logfile,
-                                 samplelog=os.path.join(strain_folder, 'log.out'),
-                                 sampleerr=os.path.join(strain_folder, 'log.err'))
+                write_to_logfile(
+                    out=out,
+                    err=err,
+                    logfile=logfile,
+                    samplelog=os.path.join(strain_folder, 'log.out'),
+                    sampleerr=os.path.join(strain_folder, 'log.err'))
             # Populate the dictionary with the absolute path to the contigs (the file will exist, but may be empty)
             strain_skesa_output_fasta_dict[strain_name] = skesa_assembly_file
         return strain_skesa_output_fasta_dict
 
     @staticmethod
-    def quast(strain_skesa_output_fasta_dict, strain_unmapped_reads_dict, strain_sorted_bam_dict, threads, logfile):
+    def quast(
+            strain_skesa_output_fasta_dict,
+            strain_unmapped_reads_dict,
+            strain_sorted_bam_dict,
+            threads,
+            logfile):
         """
         Run quast on the samples
         :param strain_skesa_output_fasta_dict: type DICT: Dictionary of strain name: absolute path to SKESA assembly
@@ -638,14 +695,16 @@ class VCFMethods(object):
             if not os.path.isfile(quast_report):
                 out, err = run_subprocess(cmd)
                 # Write the appropriate information to the logfile
-                write_to_logfile(out='{cmd}\n{out}'.format(cmd=cmd,
-                                                           out=out),
-                                 err=err,
-                                 logfile=logfile)
+                write_to_logfile(
+                    out=f'{cmd}\n{out}',
+                    err=err,
+                    logfile=logfile)
         return quast_report_dict
 
     @staticmethod
-    def parse_quast_report(quast_report_dict, summary_path):
+    def parse_quast_report(
+            quast_report_dict,
+            summary_path):
         """
         Parse the quast reports for each assembly, and create a combined report in the supplied report path
         :param quast_report_dict: type DICT: Dictionary of strain name: absolute path to quast report
@@ -674,7 +733,11 @@ class VCFMethods(object):
             quast.write(body)
 
     @staticmethod
-    def samtools_index(strain_sorted_bam_dict, strain_name_dict, threads, logfile):
+    def samtools_index(
+            strain_sorted_bam_dict,
+            strain_name_dict,
+            threads,
+            logfile):
         """
         Index the sorted BAM file with samtools index
         :param strain_sorted_bam_dict: type DICT: Dictionary of strain name: absolute path to sorted BAM file
@@ -692,19 +755,76 @@ class VCFMethods(object):
             if not os.path.isfile(sorted_bam + '.bai'):
                 out, err = run_subprocess(index_cmd)
                 # Write STDOUT and STDERR to the logfile
-                write_to_logfile(out=out,
-                                 err=err,
-                                 logfile=logfile,
-                                 samplelog=os.path.join(strain_folder, 'log.out'),
-                                 sampleerr=os.path.join(strain_folder, 'log.err'))
+                write_to_logfile(
+                    out=out,
+                    err=err,
+                    logfile=logfile,
+                    samplelog=os.path.join(strain_folder, 'log.out'),
+                    sampleerr=os.path.join(strain_folder, 'log.err'))
 
     @staticmethod
-    def deepvariant_make_examples(strain_sorted_bam_dict, strain_name_dict, strain_reference_abs_path_dict, vcf_path,
-                                  home, threads, logfile, deepvariant_version, working_path=None):
+    def deepvariant_run_container(
+            strain_sorted_bam_dict,
+            strain_reference_abs_path_dict,
+            deepvariant_dir,
+            gpu,
+            singularity,
+            home,
+            working_path,
+            version,
+            platform,
+            threads):
+        """
+        Run all three deepvariant binaries (make examples, call variants, postprocess_variants) with a single command.
+        Use a GPU-enabled image if required. Allow for either Docker or Singularity to be used
+        :return:
+        """
+        strain_gvcf_tfrecords_dict = {}
+        for strain_name, sorted_bam in strain_sorted_bam_dict.items():
+
+            gvcf_tfrecords = '{output}_gvcf'.format(output=os.path.join(deepvariant_dir, strain_name))
+            strain_gvcf_tfrecords_dict[strain_name] = \
+                '{gvcf_tfrecords}@{threads}.gz'.format(gvcf_tfrecords=gvcf_tfrecords,
+                                                       threads=threads)
+            ref_genome = strain_reference_abs_path_dict[strain_name]
+            if singularity:
+                cmd = 'singularity run '
+                if gpu:
+                    cmd += '--nv '
+                cmd += f'-B /usr/lib/locale/:/usr/lib/locale/ ' \
+                       f'docker://google/deepvariant:{version} '
+            else:
+
+                # Create the string of volume to mount to the container. Add the working path if it has been provided
+                volumes = f'{home}:{home}'.format(home=home) if not working_path \
+                    else f'{home}:{home} -v {working_path}:{working_path}'
+                cmd = f'docker run '
+                if gpu:
+                    cmd += f'--gpus 1 '
+                cmd += f'-v {volumes} ' \
+                       f'google/deepvariant:{version} '
+            cmd += f'/opt/deepvariant/bin/run_deepvariant ' \
+                   f'--model_type={platform} ' \
+                   f'--ref={ref_genome} ' \
+                   f'--reads={sorted_bam} ' \
+                   f'--output_gvcf=/output/output.g.vcf.gz ' \
+                   f'--num_shards={threads}'
+
+    @staticmethod
+    def deepvariant_make_examples(
+            strain_sorted_bam_dict,
+            strain_name_dict,
+            strain_reference_abs_path_dict,
+            vcf_path,
+            home,
+            threads,
+            logfile,
+            deepvariant_version,
+            working_path=None):
         """
         Use make_examples from deepvariant to extract pileup images from sorted BAM files. Currently, deepvariant
-        does not support Python 3, so it will be run in a Docker container. The make_examples command is multi-
-        threaded with parallel
+        does not support Python 3, so it will be run in a Docker container. The make_examples command is multithreaded
+        with parallel
         :param strain_sorted_bam_dict: type DICT: Dictionary of strain name: absolute path to strain-specific
         sorted BAM file
         :param strain_name_dict: type DICT: Dictionary of strain name: absolute path to strain-specific working dir
@@ -778,13 +898,14 @@ class VCFMethods(object):
                 # If there is only one thread, need to check to see if output_examples exists, and then check
                 # the number of threads
                 if not output_examples:
-                    # If there are fewer output files than expected (when running multithreaded) or only one thread,
+                    # If there are fewer output files than expected (when running multi-threaded) or only one thread,
                     # run the system call
                     if len(output_examples) < threads - 1 or threads == 1:
                         out, err = run_subprocess(make_example_cmd)
-                        write_to_logfile(out=out,
-                                         err=err,
-                                         logfile=logfile)
+                        write_to_logfile(
+                            out=out,
+                            err=err,
+                            logfile=logfile)
             # Populate the dictionary with the sorted list of all the sharded files
             strain_examples_dict[strain_name] = \
                 sorted(glob(os.path.join(deepvariant_dir, '{strain_name}_tfrecord-*.gz'
@@ -792,8 +913,16 @@ class VCFMethods(object):
         return strain_examples_dict, strain_variant_path, strain_gvcf_tfrecords_dict
 
     @staticmethod
-    def deepvariant_call_variants(strain_variant_path_dict, strain_name_dict, vcf_path,
-                                  home, threads, logfile, variant_caller, deepvariant_version, working_path=None):
+    def deepvariant_call_variants(
+            strain_variant_path_dict,
+            strain_name_dict,
+            vcf_path,
+            home,
+            threads,
+            logfile,
+            variant_caller,
+            deepvariant_version,
+            working_path=None):
         """
         Perform variant calling. Process deepvariant examples files with call_variant
         :param strain_variant_path_dict: type DICT: Dictionary of strain name: absolute path to deepvariant output dir
@@ -856,18 +985,28 @@ class VCFMethods(object):
             if not os.path.isfile(vcf_file_name) and not os.path.isfile(call_variants_output):
                 out, err = run_subprocess(call_variants_cmd)
                 # Write STDOUT and STDERR to the logfile
-                write_to_logfile(out=out,
-                                 err=err,
-                                 logfile=logfile,
-                                 samplelog=os.path.join(strain_folder, 'log.out'),
-                                 sampleerr=os.path.join(strain_folder, 'log.err'))
+                write_to_logfile(
+                    out=out,
+                    err=err,
+                    logfile=logfile,
+                    samplelog=os.path.join(strain_folder, 'log.out'),
+                    sampleerr=os.path.join(strain_folder, 'log.err')
+                )
         return strain_call_variants_dict
 
     @staticmethod
-    def deepvariant_postprocess_variants_multiprocessing(strain_call_variants_dict, strain_variant_path_dict,
-                                                         strain_name_dict, strain_reference_abs_path_dict,
-                                                         strain_gvcf_tfrecords_dict, vcf_path, home, logfile, threads,
-                                                         deepvariant_version, working_path=None):
+    def deepvariant_postprocess_variants_multiprocessing(
+            strain_call_variants_dict,
+            strain_variant_path_dict,
+            strain_name_dict,
+            strain_reference_abs_path_dict,
+            strain_gvcf_tfrecords_dict,
+            vcf_path,
+            home,
+            logfile,
+            threads,
+            deepvariant_version,
+            working_path=None):
         """
         Create .gvcf.gz outputs
         :param strain_call_variants_dict: type DICT: Dictionary of strain name: absolute path to deepvariant
@@ -896,18 +1035,19 @@ class VCFMethods(object):
         list_length = len(strain_list)
         # Use multiprocessing.Pool.starmap to process the samples in parallel
         # Supply the list of strains, as well as a list the length of the number of strains of each required variable
-        for vcf_dict in p.starmap(VCFMethods.deepvariant_postprocess_variants,
-                                  zip(strain_list,
-                                      [strain_call_variants_dict] * list_length,
-                                      [strain_variant_path_dict] * list_length,
-                                      [strain_name_dict] * list_length,
-                                      [strain_reference_abs_path_dict] * list_length,
-                                      [strain_gvcf_tfrecords_dict] * list_length,
-                                      [vcf_path] * list_length,
-                                      [home] * list_length,
-                                      [logfile] * list_length,
-                                      [deepvariant_version] * list_length,
-                                      [working_path] * list_length)):
+        for vcf_dict in p.starmap(
+                VCFMethods.deepvariant_postprocess_variants,
+                zip(strain_list,
+                    [strain_call_variants_dict] * list_length,
+                    [strain_variant_path_dict] * list_length,
+                    [strain_name_dict] * list_length,
+                    [strain_reference_abs_path_dict] * list_length,
+                    [strain_gvcf_tfrecords_dict] * list_length,
+                    [vcf_path] * list_length,
+                    [home] * list_length,
+                    [logfile] * list_length,
+                    [deepvariant_version] * list_length,
+                    [working_path] * list_length)):
             # Update the dictionaries
             strain_vcf_dict.update(vcf_dict)
         # Close and join the pool
@@ -916,9 +1056,17 @@ class VCFMethods(object):
         return strain_vcf_dict
 
     @staticmethod
-    def deepvariant_postprocess_variants(strain_name, strain_call_variants_dict, strain_variant_path_dict,
-                                         strain_name_dict, strain_reference_abs_path_dict, strain_gvcf_tfrecords_dict,
-                                         vcf_path, home, logfile, deepvariant_version, working_path=None):
+    def deepvariant_postprocess_variants(
+            strain_name, strain_call_variants_dict,
+            strain_variant_path_dict,
+            strain_name_dict,
+            strain_reference_abs_path_dict,
+            strain_gvcf_tfrecords_dict,
+            vcf_path,
+            home,
+            logfile,
+            deepvariant_version,
+            working_path=None):
         """
         Run the postprocess_variants script in the deepvariant Docker images. Creates global VCF output files
         :param strain_name: type STR: Name of strain currently being processed
@@ -941,7 +1089,7 @@ class VCFMethods(object):
         strain_vcf_dict = dict()
         # for strain_name, call_variants_output in strain_call_variants_dict.items():
         call_variants_output = strain_call_variants_dict[strain_name]
-        # Extract the require variables from the dictionaries
+        # Extract the required variables from the dictionaries
         strain_folder = strain_name_dict[strain_name]
         deepvariant_dir = strain_variant_path_dict[strain_name]
         ref_genome = strain_reference_abs_path_dict[strain_name]
@@ -974,11 +1122,13 @@ class VCFMethods(object):
         if not os.path.isfile(vcf_file_name) and not os.path.isfile(gvcf_file):
             out, err = run_subprocess(postprocess_variants_cmd)
             # Write STDOUT and STDERR to the logfile
-            write_to_logfile(out=out,
-                             err=err,
-                             logfile=logfile,
-                             samplelog=os.path.join(strain_folder, 'log.out'),
-                             sampleerr=os.path.join(strain_folder, 'log.err'))
+            write_to_logfile(
+                out=out,
+                err=err,
+                logfile=logfile,
+                samplelog=os.path.join(strain_folder, 'log.out'),
+                sampleerr=os.path.join(strain_folder, 'log.err')
+            )
         return strain_vcf_dict
 
     @staticmethod
@@ -1087,7 +1237,9 @@ class VCFMethods(object):
         return strain_num_high_quality_snps_dict
 
     @staticmethod
-    def copy_vcf_files(strain_vcf_dict, vcf_path):
+    def copy_vcf_files(
+            strain_vcf_dict,
+            vcf_path):
         """
         Create a folder with copies of the .vcf files
         :param strain_vcf_dict: type DICT: Dictionary of strain name: absolute path to .vcf files

@@ -1579,7 +1579,7 @@ class TreeMethods(object):
         :param reference_strain_dict: type DICT: Dictionary of strain name: absolute path to reference genome
         :param strain_best_ref_set_dict: type DICT: Dictionary of strain name: set of strain-specific reference genomes
         :return: full_best_ref_gbk_dict: Dictionary of best ref: ref position: SeqIO parsed GenBank file-sourced
-        records from closest reference genome for that position
+        records from the closest reference genome for that position
         """
         # Initialise a dictionary to store the SeqIO parsed GenBank files
         best_ref_gbk_dict = dict()
@@ -1613,7 +1613,7 @@ class TreeMethods(object):
         Use SeqIO to parse the best reference genome GenBank file for annotating SNP locations
         :param reference_strain_dict: type DICT: Dictionary of strain name: absolute path to reference genome
         :return: full_best_ref_gbk_dict: Dictionary of best ref: ref position: SeqIO parsed GenBank file-sourced
-        records from closest reference genome for that position
+        records from the closest reference genome for that position
         """
         # Initialise a dictionary to store the SeqIO parsed GenBank files
         best_ref_gbk_dict = dict()
@@ -1647,7 +1647,7 @@ class TreeMethods(object):
         :param group_strain_snp_sequence: type DICT: Dictionary of species code: group name: strain name:
         reference chromosome: position: strain-specific sequence
         :param full_best_ref_gbk_dict: type DICT: Dictionary of best ref: ref position: SeqIO parsed GenBank
-        file-sourced records from closest reference genome for that position
+        file-sourced records from the closest reference genome for that position
         :param strain_best_ref_set_dict: type DICT: Dictionary of strain name: set of strain-specific reference genomes
         :param ref_snp_positions: type DICT: Dictionary of reference chromosome name: absolute position: reference base
          call
