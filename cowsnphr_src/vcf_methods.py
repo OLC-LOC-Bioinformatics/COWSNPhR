@@ -760,15 +760,16 @@ class VCFMethods(object):
                     err=err,
                     logfile=logfile,
                     samplelog=os.path.join(strain_folder, 'log.out'),
-                    sampleerr=os.path.join(strain_folder, 'log.err'))
+                    sampleerr=os.path.join(strain_folder, 'log.err')
+                )
 
     @staticmethod
     def deepvariant_run_container(
             strain_sorted_bam_dict,
             strain_reference_abs_path_dict,
-            deepvariant_dir,
+            strain_name_dict,
             gpu,
-            singularity,
+            container_platform,
             home,
             working_path,
             version,
@@ -781,13 +782,15 @@ class VCFMethods(object):
         """
         strain_gvcf_tfrecords_dict = {}
         for strain_name, sorted_bam in strain_sorted_bam_dict.items():
-
+            strain_folder = strain_name_dict[strain_name]
+            # Set the absolute path, and create the deepvariant working directory
+            deepvariant_dir = os.path.join(strain_folder, 'deepvariant')
             gvcf_tfrecords = '{output}_gvcf'.format(output=os.path.join(deepvariant_dir, strain_name))
             strain_gvcf_tfrecords_dict[strain_name] = \
                 '{gvcf_tfrecords}@{threads}.gz'.format(gvcf_tfrecords=gvcf_tfrecords,
                                                        threads=threads)
             ref_genome = strain_reference_abs_path_dict[strain_name]
-            if singularity:
+            if container_platform == 'singularity':
                 cmd = 'singularity run '
                 if gpu:
                     cmd += '--nv '

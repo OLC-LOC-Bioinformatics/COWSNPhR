@@ -139,42 +139,54 @@ class COWSNPhR(object):
         Prep files for SNP calling. Use deepvariant to call SNPs. Parse the outputs from deepvariant
         """
         logging.info('Preparing files for SNP calling with deepvariant make_examples')
-        strain_examples_dict, strain_variant_path_dict, strain_gvcf_tfrecords_dict = \
-            VCFMethods.deepvariant_make_examples(strain_sorted_bam_dict=self.strain_sorted_bam_dict,
-                                                 strain_name_dict=self.strain_name_dict,
-                                                 strain_reference_abs_path_dict=self.strain_reference_abs_path_dict,
-                                                 vcf_path=os.path.join(self.seq_path, 'vcf_files'),
-                                                 home=self.home,
-                                                 logfile=self.logfile,
-                                                 threads=self.threads,
-                                                 working_path=self.working_path,
-                                                 deepvariant_version=self.deepvariant_version)
-        logging.info('Calling variants with deepvariant call_variants')
-        strain_call_variants_dict = \
-            VCFMethods.deepvariant_call_variants(strain_variant_path_dict=strain_variant_path_dict,
-                                                 strain_name_dict=self.strain_name_dict,
-                                                 vcf_path=os.path.join(self.seq_path, 'vcf_files'),
-                                                 home=self.home,
-                                                 threads=self.threads,
-                                                 logfile=self.logfile,
-                                                 working_path=self.working_path,
-                                                 deepvariant_version=self.deepvariant_version,
-                                                 variant_caller='deepvariant')
-        logging.info('Creating VCF files with deepvariant postprocess_variants')
-        self.strain_vcf_dict = \
-            VCFMethods.deepvariant_postprocess_variants_multiprocessing(
-                strain_call_variants_dict=strain_call_variants_dict,
-                strain_variant_path_dict=strain_variant_path_dict,
-                strain_name_dict=self.strain_name_dict,
-                strain_reference_abs_path_dict=self.strain_reference_abs_path_dict,
-                strain_gvcf_tfrecords_dict=strain_gvcf_tfrecords_dict,
-                vcf_path=os.path.join(self.seq_path, 'vcf_files'),
-                home=self.home,
-                logfile=self.logfile,
-                deepvariant_version=self.deepvariant_version,
-                threads=self.threads)
-        logging.info('Processing samples with deepvariant')
-        logging.info('Copying gVCF files to common folder')
+        VCFMethods.deepvariant_run_container(
+            strain_sorted_bam_dict=self.strain_sorted_bam_dict,
+            strain_reference_abs_path_dict=self.strain_reference_abs_path_dict,
+            strain_name_dict=self.strain_name_dict,
+            gpu=self.gpu,
+            container_platform=self.container_platform,
+            home=self.home,
+            working_path=self.working_path,
+            version=self.deepvariant_version,
+            platform=self.platform,
+            threads=self.threads
+        )
+        # strain_examples_dict, strain_variant_path_dict, strain_gvcf_tfrecords_dict = \
+        #     VCFMethods.deepvariant_make_examples(strain_sorted_bam_dict=self.strain_sorted_bam_dict,
+        #                                          strain_name_dict=self.strain_name_dict,
+        #                                          strain_reference_abs_path_dict=self.strain_reference_abs_path_dict,
+        #                                          vcf_path=os.path.join(self.seq_path, 'vcf_files'),
+        #                                          home=self.home,
+        #                                          logfile=self.logfile,
+        #                                          threads=self.threads,
+        #                                          working_path=self.working_path,
+        #                                          deepvariant_version=self.deepvariant_version)
+        # logging.info('Calling variants with deepvariant call_variants')
+        # strain_call_variants_dict = \
+        #     VCFMethods.deepvariant_call_variants(strain_variant_path_dict=strain_variant_path_dict,
+        #                                          strain_name_dict=self.strain_name_dict,
+        #                                          vcf_path=os.path.join(self.seq_path, 'vcf_files'),
+        #                                          home=self.home,
+        #                                          threads=self.threads,
+        #                                          logfile=self.logfile,
+        #                                          working_path=self.working_path,
+        #                                          deepvariant_version=self.deepvariant_version,
+        #                                          variant_caller='deepvariant')
+        # logging.info('Creating VCF files with deepvariant postprocess_variants')
+        # self.strain_vcf_dict = \
+        #     VCFMethods.deepvariant_postprocess_variants_multiprocessing(
+        #         strain_call_variants_dict=strain_call_variants_dict,
+        #         strain_variant_path_dict=strain_variant_path_dict,
+        #         strain_name_dict=self.strain_name_dict,
+        #         strain_reference_abs_path_dict=self.strain_reference_abs_path_dict,
+        #         strain_gvcf_tfrecords_dict=strain_gvcf_tfrecords_dict,
+        #         vcf_path=os.path.join(self.seq_path, 'vcf_files'),
+        #         home=self.home,
+        #         logfile=self.logfile,
+        #         deepvariant_version=self.deepvariant_version,
+        #         threads=self.threads)
+        # logging.info('Processing samples with deepvariant')
+        # logging.info('Copying gVCF files to common folder')
         VCFMethods.copy_vcf_files(
             strain_vcf_dict=self.strain_vcf_dict,
             vcf_path=os.path.join(self.seq_path, 'vcf_files')
@@ -428,7 +440,7 @@ class COWSNPhR(object):
             molecule='aa'
         )
 
-    def __init__(self, seq_path, ref_path, threads, working_path, mask_file, gpu, platform, debug):
+    def __init__(self, seq_path, ref_path, threads, working_path, mask_file, gpu, platform, container_platform, debug):
         # Determine the path in which the sequence files are located. Allow for ~ expansion
         if seq_path.startswith('~'):
             self.seq_path = os.path.abspath(os.path.expanduser(os.path.join(seq_path)))
@@ -478,6 +490,7 @@ class COWSNPhR(object):
         else:
             self.mask_file = str()
         self.platform = platform
+        self.container_platform = container_platform
         self.home = str(Path.home())
         self.dependency_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'dependencies')
         self.fasta_path = os.path.join(self.seq_path, 'alignments')
@@ -526,7 +539,8 @@ class COWSNPhR(object):
         self.full_best_ref_gbk_dict = dict()
         self.species_group_num_snps = dict()
         self.species_group_sorted_snps = dict()
-        if gpu:
+        self.gpu = gpu
+        if self.gpu:
             self.deepvariant_version = '1.5.0-gpu'
         else:
             self.deepvariant_version = '1.5.0'
@@ -593,6 +607,14 @@ def main():
         default='WGS',
         help='Select the sequencing platform used to create the FASTQ reads. Default is WGS (Illumina)'
     )
+    parser.add_argument(
+        '-container_platform', '--container_platform',
+        metavar='container_platform',
+        choices=['docker', 'singularity'],
+        default='docker',
+        help='Select the container platform to use for running DeepVariant. Choices are "docker" and "singularity". '
+             'Default is "docker"'
+    )
     args = parser.parse_args()
     cowsnphr = COWSNPhR(
         seq_path=args.sequence_path,
@@ -602,7 +624,8 @@ def main():
         mask_file=args.mask_file,
         gpu=args.gpu,
         debug=args.debug,
-        platform=args.platform
+        platform=args.platform,
+        container_platform=args.container_platform
     )
     cowsnphr.main()
     logging.info('Analyses complete!')
