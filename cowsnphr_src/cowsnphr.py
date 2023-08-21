@@ -551,7 +551,6 @@ def main():
     parser = ArgumentParser(description='Finds SNPs between provided sequences and reference genome')
     parser.add_argument(
         '-v', '--version',
-        metavar='version',
         action='version',
         version=__version__)
     parser.add_argument(
@@ -572,7 +571,6 @@ def main():
         help='Number of threads. Default is the number of cores in the system - 1')
     parser.add_argument(
         '-d', '--debug',
-        metavar='debug',
         action='store_true',
         help='Enable debugging-level messages to be printed to the terminal')
     parser.add_argument(
@@ -595,7 +593,6 @@ def main():
              'the End position of the feature in standard chromosomal coordinates')
     parser.add_argument(
         '-g', '--gpu',
-        metavar='gpu',
         action='store_true',
         help='Enable this flag if your workstation has a GPU compatible with deepvariant. '
              'The program will use the deepvariant-gpu Docker image instead of the regular deepvariant '
