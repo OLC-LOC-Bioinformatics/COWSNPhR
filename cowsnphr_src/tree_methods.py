@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 from olctools.accessoryFunctions.accessoryFunctions import make_path, run_subprocess, write_to_logfile
 from Bio.SeqRecord import SeqRecord
-from Bio.Alphabet import IUPAC
 from Bio.Seq import Seq
 from Bio import SeqIO
 import multiprocessing
@@ -1008,7 +1007,7 @@ class TreeMethods(object):
                                     # The FreeBayes stats dictionary doesn't have the VAF. Assign the alternate allele
                                     # as in the original vSNP.
                                     except KeyError:
-                                        # IF "AC' (alternate called alleles) is 1, find the IUPAC code of the ref + alt
+                                        # IF "AC" (alternate called alleles) is 1, find the IUPAC code of the ref + alt
                                         # allele combination e.g. 13-1950 pos 714775: ref: G, alt: A, call: R
                                         if pos_dict['STATS']['AC'] == '1':
                                             for code, components in iupac.items():
@@ -1170,9 +1169,8 @@ class TreeMethods(object):
                                             strain_group_seq += ref_seq
                                     except KeyError:
                                         strain_group_seq += ref_seq
-                    # Create a SeqRecord from the sequence string in IUPAC ambiguous DNA format. Use the strain name
-                    # as the id
-                    record = SeqRecord(Seq(strain_group_seq, IUPAC.ambiguous_dna),
+                    # Create a SeqRecord from the sequence string. Use the strain name as the id
+                    record = SeqRecord(Seq(strain_group_seq),
                                        id=strain_name,
                                        description='')
                     # Set the name of the FASTA alignment file
