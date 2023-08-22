@@ -774,13 +774,15 @@ class VCFMethods(object):
             working_path,
             version,
             platform,
-            threads):
+            threads,
+            logfile):
         """
         Run all three deepvariant binaries (make examples, call variants, postprocess_variants) with a single command.
         Use a GPU-enabled image if required. Allow for either Docker or Singularity to be used
         :return:
         """
         strain_gvcf_tfrecords_dict = {}
+        strain_vcf_dict = {}
         for strain_name, sorted_bam in strain_sorted_bam_dict.items():
             strain_folder = strain_name_dict[strain_name]
             # Set the absolute path, and create the deepvariant working directory
@@ -812,6 +814,16 @@ class VCFMethods(object):
                    f'--reads={sorted_bam} ' \
                    f'--output_gvcf=/output/output.g.vcf.gz ' \
                    f'--num_shards={threads}'
+            gvcf_file = os.path.join(deepvariant_dir, '{sn}.gvcf.gz'.format(sn=strain_name))
+            # Update the dictionary with the path to the output file
+            strain_vcf_dict[strain_name] = gvcf_file
+            if not os.path.isfile(gvcf_file):
+                out, err = run_subprocess(cmd)
+                write_to_logfile(
+                    out=out,
+                    err=err,
+                    logfile=logfile)
+        return strain_vcf_dict
 
     @staticmethod
     def deepvariant_make_examples(
