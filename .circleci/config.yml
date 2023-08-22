@@ -8,12 +8,14 @@ jobs:
   azure-storage:
     # Specify the execution environment. You can specify an image from Dockerhub or use one of our Convenience Images from CircleCI's Developer Hub.
     # See: https://circleci.com/docs/2.0/configuration-reference/#docker-machine-macos-windows-executor
-    docker:
-      - image: ubuntu:20.04
+    machine: true
     # Add steps to the job
     # See: https://circleci.com/docs/2.0/configuration-reference/#steps
     steps:
       - checkout
+      - run:
+          name: Download DeepVariant docker image
+          command: docker pull google/deepvariant:1.5.0
       - run:
           name: Setup Environment and Run Tests
           command: |
@@ -27,7 +29,7 @@ jobs:
             conda update -y conda
             conda config --add channels conda-forge
             conda config --add channels olcbioinformatics
-            conda create -n cowsnphr -c olcbioinformatics cowsnphr==0.0.31
+            conda create -n cowsnphr -c olcbioinformatics cowsnphr==0.0.33
             conda activate cowsnphr
             python -m pytest tests/
 workflows:
