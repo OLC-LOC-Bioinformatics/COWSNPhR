@@ -139,7 +139,7 @@ class COWSNPhR(object):
         Prep files for SNP calling. Use deepvariant to call SNPs. Parse the outputs from deepvariant
         """
         logging.info('Preparing files for SNP calling with deepvariant make_examples')
-        VCFMethods.deepvariant_run_container(
+        self.strain_vcf_dict = VCFMethods.deepvariant_run_container(
             strain_sorted_bam_dict=self.strain_sorted_bam_dict,
             strain_reference_abs_path_dict=self.strain_reference_abs_path_dict,
             strain_name_dict=self.strain_name_dict,
@@ -149,7 +149,8 @@ class COWSNPhR(object):
             working_path=self.working_path,
             version=self.deepvariant_version,
             platform=self.platform,
-            threads=self.threads
+            threads=self.threads,
+            logfile=self.logfile
         )
         # strain_examples_dict, strain_variant_path_dict, strain_gvcf_tfrecords_dict = \
         #     VCFMethods.deepvariant_make_examples(strain_sorted_bam_dict=self.strain_sorted_bam_dict,
