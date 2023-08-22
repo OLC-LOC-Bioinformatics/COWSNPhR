@@ -83,45 +83,61 @@ ref_translated_snp_residue_dict = dict()
 
 def test_invalid_path():
     with pytest.raises(AssertionError):
-        COWSNPhR(seq_path='not a real path',
-                 ref_path=dependency_path,
-                 threads=1,
-                 working_path=file_path,
-                 maskfile=None,
-                 gpu=None,
-                 debug=False)
+        COWSNPhR(
+            seq_path='not a real path',
+            ref_path=dependency_path,
+            threads=1,
+            working_path=file_path,
+            mask_file=None,
+            gpu=None,
+            platform='WGS',
+            container_platform='docker',
+            debug=False
+        )
 
 
 def test_no_threads():
     with pytest.raises(TypeError):
-        assert COWSNPhR(seq_path='not a real path',
-                        ref_path=dependency_path,
-                        working_path=file_path,
-                        maskfile=None,
-                        gpu=None,
-                        debug=False)
+        assert COWSNPhR(
+            seq_path='not a real path',
+            ref_path=dependency_path,
+            working_path=file_path,
+            mask_file=None,
+            platform='WGS',
+            container_platform='docker',
+            gpu=None,
+            debug=False
+        )
 
 
 def test_valid_path():
     global vcf_object
-    vcf_object = COWSNPhR(seq_path=file_path,
-                          ref_path=dependency_path,
-                          threads=1,
-                          working_path=file_path,
-                          maskfile=None,
-                          gpu=None,
-                          debug=False)
+    vcf_object = COWSNPhR(
+        seq_path=file_path,
+        ref_path=dependency_path,
+        threads=1,
+        working_path=file_path,
+        mask_file=None,
+        gpu=None,
+        platform='WGS',
+        container_platform='docker',
+        debug=False
+    )
     assert vcf_object
 
 
 def test_invalid_tilde_path():
-    COWSNPhR(seq_path='~',
-             ref_path=dependency_path,
-             threads=1,
-             working_path=file_path,
-             maskfile=None,
-             gpu=None,
-             debug=False)
+    COWSNPhR(
+        seq_path='~',
+        ref_path=dependency_path,
+        threads=1,
+        working_path=file_path,
+        mask_file=None,
+        gpu=None,
+        platform='WGS',
+        container_platform='docker',
+        debug=False
+    )
 
 
 def test_empty_filer():
@@ -130,15 +146,19 @@ def test_empty_filer():
 
 
 def test_empty_filer_dict():
-    filedict = filer(filelist=list(),
-                     returndict=True)
+    filedict = filer(
+        filelist=list(),
+        returndict=True
+    )
     assert filedict == dict()
 
 
 def test_normal_filer_dict():
-    filedict = filer(filelist=['03-1057.vcf', '13-1941.vcf'],
-                     extension='vcf',
-                     returndict=True)
+    filedict = filer(
+        filelist=['03-1057.vcf', '13-1941.vcf'],
+        extension='vcf',
+        returndict=True
+    )
     assert [file_name for file_name in filedict] == ['03-1057', '13-1941']
 
 
@@ -196,8 +216,10 @@ def test_summarise_vcf_outputs():
 def test_determine_ref_species():
     global strain_species_dict, strain_best_ref_fasta_dict
     strain_species_dict, strain_best_ref_fasta_dict = \
-        TreeMethods.determine_ref_species(strain_best_ref_dict=strain_best_ref_dict,
-                                          accession_species_dict=accession_species_dict)
+        TreeMethods.determine_ref_species(
+            strain_best_ref_dict=strain_best_ref_dict,
+            accession_species_dict=accession_species_dict
+        )
     assert strain_species_dict['B13-0234'] == 'suis1'
     assert strain_best_ref_fasta_dict['B13-0234'] == 'NC_017251-NC_017250.fasta'
 
@@ -205,8 +227,10 @@ def test_determine_ref_species():
 def test_reference_path():
     global reference_link_path_dict, reference_link_dict, reference_strain_dict
     reference_link_path_dict, reference_link_dict, reference_strain_dict = \
-        TreeMethods.reference_folder(strain_best_ref_fasta_dict=strain_best_ref_fasta_dict,
-                                     dependency_path=dependency_path)
+        TreeMethods.reference_folder(
+            strain_best_ref_fasta_dict=strain_best_ref_fasta_dict,
+            dependency_path=dependency_path
+        )
     assert 'brucella/suis1/script_dependents' in reference_link_path_dict['B13-0234']
     assert 'brucella/suis1/script_dependents/NC_017251-NC_017250.fasta' in reference_strain_dict['B13-0234']
     assert 'brucella/suis1/script_dependents/NC_017251-NC_017250.fasta' in \
@@ -218,8 +242,10 @@ def test_reference_path():
 def test_consolidate_group_ref_genomes():
     global strain_consolidated_ref_dict
     strain_consolidated_ref_dict = \
-        TreeMethods.consolidate_group_ref_genomes(reference_link_dict=reference_link_dict,
-                                                  strain_best_ref_dict=strain_best_ref_dict)
+        TreeMethods.consolidate_group_ref_genomes(
+            reference_link_dict=reference_link_dict,
+            strain_best_ref_dict=strain_best_ref_dict
+        )
     assert strain_consolidated_ref_dict['B13-0234'] == 'NC_017251-NC_017250'
     assert strain_consolidated_ref_dict['B13-0238'] == 'NC_017251-NC_017250'
     with pytest.raises(KeyError):
@@ -228,8 +254,10 @@ def test_consolidate_group_ref_genomes():
 
 def test_extract_defining_snps():
     global defining_snp_dict
-    defining_snp_dict = TreeMethods.extract_defining_snps(reference_strain_dict=reference_strain_dict,
-                                                          strain_species_dict=strain_species_dict)
+    defining_snp_dict = TreeMethods.extract_defining_snps(
+        reference_strain_dict=reference_strain_dict,
+        strain_species_dict=strain_species_dict
+    )
     for species, snp_dict in defining_snp_dict.items():
         if species == 'af':
             assert snp_dict['Mbovis-01']['NC_002945.4'] == '2138896'
@@ -242,8 +270,10 @@ def test_extract_defining_snps():
 def test_load_snp_positions():
     global consolidated_ref_snp_positions, strain_snp_positions, ref_snp_positions
     consolidated_ref_snp_positions, strain_snp_positions, ref_snp_positions = \
-        TreeMethods.load_gvcf_snp_positions(strain_parsed_vcf_dict=strain_parsed_vcf_dict,
-                                            strain_consolidated_ref_dict=strain_consolidated_ref_dict)
+        TreeMethods.load_gvcf_snp_positions(
+            strain_parsed_vcf_dict=strain_parsed_vcf_dict,
+            strain_consolidated_ref_dict=strain_consolidated_ref_dict
+        )
     assert consolidated_ref_snp_positions['NC_017251-NC_017250']['NC_017250.1'][1197913] == 'T'
     assert consolidated_ref_snp_positions['NC_017251-NC_017250']['NC_017250.1'][16405] == 'C'
     assert consolidated_ref_snp_positions['NC_017251-NC_017250']['NC_017251.1'][50509] == 'A'
@@ -297,7 +327,8 @@ def test_load_supplied_mask():
     supplied_mask_pos_dict = \
         TreeMethods.load_supplied_mask(
             strain_groups=strain_groups,
-            maskfile=os.path.join(dependency_path, 'brucella/suis1/script_dependents/maskfile.bed'))
+            maskfile=os.path.join(dependency_path, 'brucella/suis1/script_dependents/maskfile.bed')
+        )
     assert 43351 in supplied_mask_pos_dict['B13-0234']['group']['NC_017250.1']
     assert 43355 not in supplied_mask_pos_dict['B13-0234']['group']['NC_017250.1']
 
@@ -305,10 +336,12 @@ def test_load_supplied_mask():
 def test_filter_masked_snps():
     global filtered_group_positions, filter_reasons
     filtered_masked_group_positions, filter_reasons = \
-        TreeMethods.filter_masked_snp_positions(group_positions_set=group_positions_set,
-                                                filtered_group_positions=filtered_group_positions,
-                                                mask_pos_dict=mask_pos_dict,
-                                                supplied_mask_pos_dict=supplied_mask_pos_dict)
+        TreeMethods.filter_masked_snp_positions(
+            group_positions_set=group_positions_set,
+            filtered_group_positions=filtered_group_positions,
+            mask_pos_dict=mask_pos_dict,
+            supplied_mask_pos_dict=supplied_mask_pos_dict
+        )
     assert filter_reasons['species']['group']['NC_017250.1'][5306] == ['density']
     assert len(filtered_group_positions['species']['group']['NC_017251.1']) == 609
     assert len(filtered_group_positions['species']['group']['NC_017250.1']) == 366
@@ -320,13 +353,15 @@ def test_filter_masked_snps():
 def test_load_snp_sequence():
     global group_strain_snp_sequence, species_group_best_ref
     group_strain_snp_sequence, species_group_best_ref = \
-        TreeMethods.load_snp_sequence(strain_parsed_vcf_dict=strain_parsed_vcf_dict,
-                                      strain_consolidated_ref_dict=strain_consolidated_ref_dict,
-                                      group_positions_set=filtered_group_positions,
-                                      strain_groups=strain_groups,
-                                      strain_species_dict=strain_species_dict,
-                                      consolidated_ref_snp_positions=consolidated_ref_snp_positions,
-                                      iupac=iupac)
+        TreeMethods.load_snp_sequence(
+            strain_parsed_vcf_dict=strain_parsed_vcf_dict,
+            strain_consolidated_ref_dict=strain_consolidated_ref_dict,
+            group_positions_set=filtered_group_positions,
+            strain_groups=strain_groups,
+            strain_species_dict=strain_species_dict,
+            consolidated_ref_snp_positions=consolidated_ref_snp_positions,
+            iupac=iupac
+        )
     assert group_strain_snp_sequence['species']['group']['B13-0234']['NC_017250.1'][2816] == 'T'
     assert len(group_strain_snp_sequence['species']['group']['B13-0234']['NC_017250.1']) == 256
     with pytest.raises(KeyError):
@@ -347,13 +382,15 @@ def test_create_multifasta():
     for key, value in reference_link_dict.items():
         base_dict[os.path.splitext(key)[0]] = value
     group_folders, species_folders, group_fasta_dict = \
-        TreeMethods.create_multifasta(group_strain_snp_sequence=group_strain_snp_sequence,
-                                      fasta_path=fasta_path,
-                                      group_positions_set=group_positions_set,
-                                      strain_parsed_vcf_dict=strain_parsed_vcf_dict,
-                                      species_group_best_ref=species_group_best_ref,
-                                      reference_strain_dict=base_dict,
-                                      ident_group_positions=ident_group_positions)
+        TreeMethods.create_multifasta(
+            group_strain_snp_sequence=group_strain_snp_sequence,
+            fasta_path=fasta_path,
+            group_positions_set=group_positions_set,
+            strain_parsed_vcf_dict=strain_parsed_vcf_dict,
+            species_group_best_ref=species_group_best_ref,
+            reference_strain_dict=base_dict,
+            ident_group_positions=ident_group_positions
+        )
     assert len(group_folders) == 1
     assert len(species_folders) == 1
     for species, group_dict in group_fasta_dict.items():
@@ -363,11 +400,12 @@ def test_create_multifasta():
 
 def test_run_fasttree():
     global species_group_trees
-    species_group_trees = TreeMethods \
-        .run_fasttree(group_fasta_dict=group_fasta_dict,
-                      strain_consolidated_ref_dict=strain_consolidated_ref_dict,
-                      strain_groups=strain_groups,
-                      logfile=logfile)
+    species_group_trees = TreeMethods.run_fasttree(
+        group_fasta_dict=group_fasta_dict,
+        strain_consolidated_ref_dict=strain_consolidated_ref_dict,
+        strain_groups=strain_groups,
+        logfile=logfile
+    )
     for species, group_dict in species_group_trees.items():
         for group, options_dict in group_dict.items():
             assert os.path.getsize(options_dict['best_tree']) > 100
@@ -381,8 +419,10 @@ def test_parse_tree_order():
 
 
 def test_copy_trees():
-    TreeMethods.copy_trees(species_group_trees=species_group_trees,
-                           tree_path=tree_path)
+    TreeMethods.copy_trees(
+        species_group_trees=species_group_trees,
+        tree_path=tree_path
+    )
     assert len(glob(os.path.join(tree_path, '*_All*'))) == 0
     assert len(glob(os.path.join(tree_path, '*best_tree*'))) == 1
     assert len(glob(os.path.join(tree_path, '*'))) == 1
@@ -406,10 +446,12 @@ def test_load_genbank_file():
 def test_annotate_snps():
     global species_group_annotated_snps_dict
     species_group_annotated_snps_dict = \
-        TreeMethods.annotate_snps(group_strain_snp_sequence=group_strain_snp_sequence,
-                                  full_best_ref_gbk_dict=full_best_ref_gbk_dict,
-                                  strain_best_ref_set_dict=strain_best_ref_set_dict,
-                                  ref_snp_positions=ref_snp_positions)
+        TreeMethods.annotate_snps(
+            group_strain_snp_sequence=group_strain_snp_sequence,
+            full_best_ref_gbk_dict=full_best_ref_gbk_dict,
+            strain_best_ref_set_dict=strain_best_ref_set_dict,
+            ref_snp_positions=ref_snp_positions
+        )
     assert species_group_annotated_snps_dict['species']['group']['NC_017251.1'][1631902]['locus'] == 'IBCBLKLE_01571'
     assert species_group_annotated_snps_dict['species']['group']['NC_017251.1'][1451059]['gene'] == 'yfcG_2'
     assert species_group_annotated_snps_dict['species']['group']['NC_017251.1'][187595]['product'] == \
@@ -419,8 +461,10 @@ def test_annotate_snps():
 def test_determine_snp_number():
     global species_group_snp_num_dict
     species_group_snp_num_dict = \
-        TreeMethods.determine_snp_number(group_strain_snp_sequence=group_strain_snp_sequence,
-                                         species_group_best_ref=species_group_best_ref)
+        TreeMethods.determine_snp_number(
+            group_strain_snp_sequence=group_strain_snp_sequence,
+            species_group_best_ref=species_group_best_ref
+        )
     assert species_group_snp_num_dict['species']['group']['NC_017251.1'][1263210] == 1
     assert species_group_snp_num_dict['species']['group']['NC_017251.1'][29269] == 5
     assert species_group_snp_num_dict['species']['group']['NC_017251.1'][1066226] == 4
@@ -441,7 +485,8 @@ def test_determine_aa_sequence():
             species_group_annotated_snps_dict=species_group_annotated_snps_dict,
             reference_strain_dict=reference_strain_dict,
             species_group_snp_num_dict=species_group_snp_num_dict,
-            iupac=iupac)
+            iupac=iupac
+        )
     assert translated_snp_residue_dict['species']['group']['B13-0234']['NC_017251.1'][1263210]['snp_nt_seq_raw'] == 'T'
     assert translated_snp_residue_dict['species']['group']['B13-0234']['NC_017251.1'][1263210]['snp_nt_seq_alt'] == 'A'
     assert translated_snp_residue_dict['species']['group']['B13-0234']['NC_017251.1'][1263210]['ref_aa_seq_cds'] == 'L'
@@ -452,9 +497,11 @@ def test_determine_aa_sequence():
 
 
 def test_create_snp_matrix():
-    TreeMethods.create_snp_matrix(species_group_best_ref=species_group_best_ref,
-                                  group_strain_snp_sequence=group_strain_snp_sequence,
-                                  matrix_path=matrix_path)
+    TreeMethods.create_snp_matrix(
+        species_group_best_ref=species_group_best_ref,
+        group_strain_snp_sequence=group_strain_snp_sequence,
+        matrix_path=matrix_path
+    )
     assert os.path.isfile(os.path.join(matrix_path, 'snv_matrix.tsv'))
 
 
@@ -474,10 +521,12 @@ def test_rank_snps():
 def test_sort_snps():
     global species_group_sorted_snps
     species_group_sorted_snps = \
-        TreeMethods.sort_snps(species_group_order_dict=species_group_order_dict,
-                              species_group_snp_rank=species_group_snp_rank,
-                              species_group_best_ref=species_group_best_ref,
-                              group_strain_snp_sequence=group_strain_snp_sequence)
+        TreeMethods.sort_snps(
+            species_group_order_dict=species_group_order_dict,
+            species_group_snp_rank=species_group_snp_rank,
+            species_group_best_ref=species_group_best_ref,
+            group_strain_snp_sequence=group_strain_snp_sequence
+        )
     assert species_group_sorted_snps['species']['group'][4]['NC_017250.1'][0] == 432146
     assert species_group_sorted_snps['species']['group'][1]['NC_017250.1'][-1] == 1183517
     assert species_group_sorted_snps['species']['group'][1]['NC_017251.1'][-1] == 2065515
@@ -488,30 +537,34 @@ def test_sort_snps():
 def test_create_nt_summary_table():
     global summary_path
     make_path(summary_path)
-    TreeMethods.create_summary_table(species_group_sorted_snps=species_group_sorted_snps,
-                                     species_group_order_dict=species_group_order_dict,
-                                     species_group_best_ref=species_group_best_ref,
-                                     group_strain_snp_sequence=group_strain_snp_sequence,
-                                     species_group_annotated_snps_dict=species_group_annotated_snps_dict,
-                                     translated_snp_residue_dict=translated_snp_residue_dict,
-                                     ref_translated_snp_residue_dict=ref_translated_snp_residue_dict,
-                                     species_group_num_snps=species_group_num_snps,
-                                     summary_path=summary_path,
-                                     molecule='nt')
+    TreeMethods.create_summary_table(
+        species_group_sorted_snps=species_group_sorted_snps,
+        species_group_order_dict=species_group_order_dict,
+        species_group_best_ref=species_group_best_ref,
+        group_strain_snp_sequence=group_strain_snp_sequence,
+        species_group_annotated_snps_dict=species_group_annotated_snps_dict,
+        translated_snp_residue_dict=translated_snp_residue_dict,
+        ref_translated_snp_residue_dict=ref_translated_snp_residue_dict,
+        species_group_num_snps=species_group_num_snps,
+        summary_path=summary_path,
+        molecule='nt'
+    )
     assert os.path.isfile(os.path.join(summary_path, 'nt_snv_sorted_table.xlsx')) == 1
 
 
 def test_create_aa_summary_table():
-    TreeMethods.create_summary_table(species_group_sorted_snps=species_group_sorted_snps,
-                                     species_group_order_dict=species_group_order_dict,
-                                     species_group_best_ref=species_group_best_ref,
-                                     group_strain_snp_sequence=group_strain_snp_sequence,
-                                     species_group_annotated_snps_dict=species_group_annotated_snps_dict,
-                                     translated_snp_residue_dict=translated_snp_residue_dict,
-                                     ref_translated_snp_residue_dict=ref_translated_snp_residue_dict,
-                                     species_group_num_snps=species_group_num_snps,
-                                     summary_path=summary_path,
-                                     molecule='aa')
+    TreeMethods.create_summary_table(
+        species_group_sorted_snps=species_group_sorted_snps,
+        species_group_order_dict=species_group_order_dict,
+        species_group_best_ref=species_group_best_ref,
+        group_strain_snp_sequence=group_strain_snp_sequence,
+        species_group_annotated_snps_dict=species_group_annotated_snps_dict,
+        translated_snp_residue_dict=translated_snp_residue_dict,
+        ref_translated_snp_residue_dict=ref_translated_snp_residue_dict,
+        species_group_num_snps=species_group_num_snps,
+        summary_path=summary_path,
+        molecule='aa'
+    )
     assert os.path.isfile(os.path.join(summary_path, 'aa_snv_sorted_table.xlsx')) == 1
 
 
@@ -520,14 +573,22 @@ def test_folder_prep():
     # Set the name, and create folders to hold VCF files for the test run of the pipeline
     make_path(deep_variant_path)
     # Copy the test files to the appropriate folders
-    shutil.copyfile(src=os.path.join(file_path, 'B13-0234.gvcf.gz'),
-                    dst=os.path.join(deep_variant_path, 'B13-0234.gvcf.gz'))
-    shutil.copyfile(src=os.path.join(file_path, 'B13-0235.gvcf.gz'),
-                    dst=os.path.join(deep_variant_path, 'B13-0235.gvcf.gz'))
-    shutil.copyfile(src=os.path.join(file_path, 'B13-0237.gvcf.gz'),
-                    dst=os.path.join(deep_variant_path, 'B13-0237.gvcf.gz'))
-    shutil.copyfile(src=os.path.join(file_path, 'B13-0238.gvcf.gz'),
-                    dst=os.path.join(deep_variant_path, 'B13-0238.gvcf.gz'))
+    shutil.copyfile(
+        src=os.path.join(file_path, 'B13-0234.gvcf.gz'),
+        dst=os.path.join(deep_variant_path, 'B13-0234.gvcf.gz')
+    )
+    shutil.copyfile(
+        src=os.path.join(file_path, 'B13-0235.gvcf.gz'),
+        dst=os.path.join(deep_variant_path, 'B13-0235.gvcf.gz')
+    )
+    shutil.copyfile(
+        src=os.path.join(file_path, 'B13-0237.gvcf.gz'),
+        dst=os.path.join(deep_variant_path, 'B13-0237.gvcf.gz')
+    )
+    shutil.copyfile(
+        src=os.path.join(file_path, 'B13-0238.gvcf.gz'),
+        dst=os.path.join(deep_variant_path, 'B13-0238.gvcf.gz')
+    )
     assert os.path.isfile(os.path.join(deep_variant_path, 'B13-0234.gvcf.gz'))
 
 
