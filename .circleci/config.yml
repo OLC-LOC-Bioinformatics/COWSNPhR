@@ -19,17 +19,18 @@ jobs:
       - run:
           name: Setup Environment and Run Tests
           command: |
-            apt update
-            apt install -y wget coreutils curl gnupg
+            sudo apt update
+            sudo apt install -y wget coreutils curl gnupg
             wget -O Mambaforge.sh  "https://github.com/conda-forge/miniforge/releases/latest/download/Mambaforge-$(uname)-$(uname -m).sh"
             bash Mambaforge.sh -b -p "${HOME}/conda"
             source "${HOME}/conda/etc/profile.d/conda.sh"
             source "${HOME}/conda/etc/profile.d/mamba.sh"
             conda config --set always_yes yes --set changeps1 no
             conda update -y conda
+            conda install mamba 
             conda config --add channels conda-forge
             conda config --add channels olcbioinformatics
-            conda create -n cowsnphr -c olcbioinformatics cowsnphr==0.0.33
+            mamba create -n cowsnphr -c olcbioinformatics cowsnphr==0.0.33
             conda activate cowsnphr
             python -m pytest tests/
 workflows:
