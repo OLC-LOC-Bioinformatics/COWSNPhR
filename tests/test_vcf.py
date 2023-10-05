@@ -22,7 +22,7 @@ threads = multiprocessing.cpu_count() - 1
 home = str(Path.home())
 # Define the start time
 start_time = datetime.now()
-deepvariant_version = '1.0.0'
+deepvariant_version = '1.5.0'
 file_list = list()
 strain_folder_dict = dict()
 strain_name_dict = dict()
@@ -498,7 +498,8 @@ def test_samtools_index():
 
 
 def test_combined_deepvariant_call():
-    VCFMethods.deepvariant_run_container(
+    global strain_vcf_dict
+    strain_vcf_dict = VCFMethods.deepvariant_run_container(
         strain_sorted_bam_dict=strain_sorted_bam_dict,
         strain_reference_abs_path_dict=strain_reference_abs_path_dict,
         strain_name_dict=strain_name_dict,
@@ -547,8 +548,8 @@ def test_parse_gvcf():
         if strain_name != '13-1950':
             gvcf_strain_vcf_dict[strain_name] = vcf_file
     gvcf_num_high_quality_snps_dict = VCFMethods.parse_gvcf(strain_vcf_dict=gvcf_strain_vcf_dict)
-    assert gvcf_num_high_quality_snps_dict['13-1941'] == 383
-    assert gvcf_num_high_quality_snps_dict['B13-0234'] == 69
+    assert gvcf_num_high_quality_snps_dict['13-1941'] == 398
+    assert gvcf_num_high_quality_snps_dict['B13-0234'] == 63
     assert gvcf_num_high_quality_snps_dict['NC_002695'] == 0
 
 
@@ -556,7 +557,7 @@ def test_copy_vcf_files():
     VCFMethods.copy_vcf_files(strain_vcf_dict=strain_vcf_dict,
                               vcf_path=vcf_path)
     assert os.path.isdir(vcf_path)
-    assert len(glob(os.path.join(vcf_path, '*.gvcf.gz'))) == 2
+    assert len(glob(os.path.join(vcf_path, '*.gvcf.gz'))) == 3
 
 
 def test_consolidate_high_quality_snp_dicts():
@@ -564,8 +565,8 @@ def test_consolidate_high_quality_snp_dicts():
     strain_num_high_quality_snps_dict = dict()
     for strain_name, num_high_quality_snps in gvcf_num_high_quality_snps_dict.items():
         strain_num_high_quality_snps_dict[strain_name] = num_high_quality_snps
-    assert strain_num_high_quality_snps_dict['13-1941'] == 383
-    assert strain_num_high_quality_snps_dict['B13-0234'] == 69
+    assert strain_num_high_quality_snps_dict['13-1941'] == 398
+    assert strain_num_high_quality_snps_dict['B13-0234'] == 63
     assert strain_num_high_quality_snps_dict['NC_002695'] == 0
     with pytest.raises(KeyError):
         assert strain_num_high_quality_snps_dict['13-1950']
