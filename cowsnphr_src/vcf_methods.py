@@ -787,6 +787,7 @@ class VCFMethods(object):
             strain_folder = strain_name_dict[strain_name]
             # Set the absolute path, and create the deepvariant working directory
             deepvariant_dir = os.path.join(strain_folder, 'deepvariant')
+            os.makedirs(deepvariant_dir, exist_ok=True)
             gvcf_tfrecords = '{output}_gvcf'.format(output=os.path.join(deepvariant_dir, strain_name))
             strain_gvcf_tfrecords_dict[strain_name] = \
                 '{gvcf_tfrecords}@{threads}.gz'.format(gvcf_tfrecords=gvcf_tfrecords,
@@ -808,13 +809,18 @@ class VCFMethods(object):
                     cmd += f'--gpus 1 '
                 cmd += f'-v {volumes} ' \
                        f'google/deepvariant:{version} '
+            output_vcf = os.path.join(deepvariant_dir, f'{strain_name}.vcf')
+            gvcf_file = os.path.join(deepvariant_dir, '{sn}.gvcf.gz'.format(sn=strain_name))
+            log_dir = os.path.join(deepvariant_dir, 'logs')
+            os.makedirs(log_dir, exist_ok=True)
             cmd += f'/opt/deepvariant/bin/run_deepvariant ' \
                    f'--model_type={platform} ' \
                    f'--ref={ref_genome} ' \
                    f'--reads={sorted_bam} ' \
-                   f'--output_gvcf=/output/output.g.vcf.gz ' \
-                   f'--num_shards={threads}'
-            gvcf_file = os.path.join(deepvariant_dir, '{sn}.gvcf.gz'.format(sn=strain_name))
+                   f'--output_vcf={output_vcf} ' \
+                   f'--output_gvcf={gvcf_file} ' \
+                   f'--num_shards={threads} ' \
+                   f'--logging_dir={log_dir}'
             # Update the dictionary with the path to the output file
             strain_vcf_dict[strain_name] = gvcf_file
             if not os.path.isfile(gvcf_file):
@@ -1190,7 +1196,7 @@ class VCFMethods(object):
                                 # They must have a 'PASS' in the filter column. As well both the reference and query
                                 # base must be of length one (a SNP rather than an indel), and the quality must pass
                                 # the threshold
-                                if filter_stat == 'PASS' and len(ref) == 1 and len(alt) == 1 and float(qual) > 35:
+                                if filter_stat == 'PASS' and len(ref) == 1 and len(alt) == 1 and float(qual) > 14:
                                     # Add the passing SNP to the dictionary
                                     strain_num_high_quality_snps_dict[strain_name] += 1
         return strain_num_high_quality_snps_dict
