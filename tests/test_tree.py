@@ -432,8 +432,8 @@ def test_prokka():
     TreeMethods.prokka(reference_strain_dict=reference_strain_dict,
                        logfile=logfile)
     for strain_name, ref_fasta in reference_strain_dict.items():
-        gbf_file = ref_fasta.replace('.fasta', '.gbf')
-        assert os.path.isfile(gbf_file)
+        gbk_file = ref_fasta.replace('.fasta', '.gbk')
+        assert os.path.isfile(gbk_file)
 
 
 def test_load_genbank_file():
