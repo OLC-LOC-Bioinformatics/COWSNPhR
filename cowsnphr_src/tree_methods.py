@@ -1469,12 +1469,12 @@ class TreeMethods(object):
         for strain_name, ref_fasta in reference_strain_dict.items():
             ref_path = os.path.dirname(ref_fasta)
             ref_strain = os.path.splitext(os.path.basename(ref_fasta))[0]
-            gbf_file = ref_fasta.replace('.fasta', '.gbf')
+            gbk_file = ref_fasta.replace('.fasta', '.gbk')
             cmd = 'prokka --force --outdir {output_folder} --prefix {prefix} {ref_file}' \
                 .format(output_folder=ref_path,
                         prefix=ref_strain,
                         ref_file=ref_fasta)
-            if not os.path.isfile(gbf_file):
+            if not os.path.isfile(gbk_file):
                 out, err = run_subprocess(command=cmd)
                 write_to_logfile(out='{cmd}\n{out}'.format(cmd=cmd,
                                                            out=out),
@@ -1585,7 +1585,7 @@ class TreeMethods(object):
             # Extract the species code from the dictionary
             best_ref_set = strain_best_ref_set_dict[strain_name]
             for best_ref in best_ref_set:
-                gbk_file = glob(os.path.join(best_ref_path, '{br}*.gbf'.format(br=os.path.splitext(best_ref)[0])))[0]
+                gbk_file = glob(os.path.join(best_ref_path, '{br}*.gbk'.format(br=os.path.splitext(best_ref)[0])))[0]
                 # Only parse the file if it has not already been parsed
                 if best_ref not in best_ref_gbk_dict:
                     # Use SeqIO to first parse the GenBank file, and convert the parsed object to a dictionary
@@ -1618,11 +1618,11 @@ class TreeMethods(object):
         full_best_ref_gbk_dict = dict()
         for strain_name, best_ref_file in reference_strain_dict.items():
             best_ref = os.path.splitext(best_ref_file)[0]
-            gbf_file = best_ref_file.replace('.fasta', '.gbf')
+            gbk_file = best_ref_file.replace('.fasta', '.gbk')
             # Only parse the file if it has not already been parsed
             if best_ref not in best_ref_gbk_dict:
                 # Use SeqIO to first parse the GenBank file, and convert the parsed object to a dictionary
-                gbk_dict = SeqIO.to_dict(SeqIO.parse(gbf_file, "genbank"))
+                gbk_dict = SeqIO.to_dict(SeqIO.parse(gbk_file, "genbank"))
                 # Add the GenBank dictionary to the best reference-specific dictionary
                 best_ref_gbk_dict[best_ref] = gbk_dict
         for best_ref, gbk_dict in best_ref_gbk_dict.items():
