@@ -5,7 +5,7 @@ Single nucleotide variant detection pipeline using logic modified from https://g
 
 Documentation is available [here](https://OLC-LOC-Bioinformatics.github.io/COWSNPhR/)
 
-[![Build Status](https://travis-ci.org/OLC-LOC-Bioinformatics/COWSNPhR.svg?branch=master)](https://travis-ci.org/OLC-LOC-Bioinformatics/COWSNPhR)
+[![CircleCI](https://dl.circleci.com/status-badge/img/gh/OLC-LOC-Bioinformatics/COWSNPhR/tree/main.svg?style=shield)](https://dl.circleci.com/status-badge/redirect/gh/OLC-LOC-Bioinformatics/COWSNPhR/tree/main)
 
 ### Quickstart
 
