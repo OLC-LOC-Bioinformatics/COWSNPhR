@@ -31,7 +31,7 @@ jobs:
             conda install mamba 
             conda config --add channels bioconda
             conda config --add channels olcbioinformatics
-            mamba create -n cowsnphr -c olcbioinformatics cowsnphr==0.0.33=py_2
+            mamba create -n cowsnphr -c olcbioinformatics cowsnphr==0.0.34=py_0
             conda activate cowsnphr
             python -m pytest tests/ -s -vvv
 workflows:
