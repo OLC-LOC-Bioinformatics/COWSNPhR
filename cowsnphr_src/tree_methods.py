@@ -810,22 +810,22 @@ class TreeMethods(object):
         supplied_mask_pos_dict = dict()
         for species, group_list in strain_groups.items():
             if species not in supplied_mask_pos_dict:
-                supplied_mask_pos_dict[species] = dict()
+                supplied_mask_pos_dict['species'] = dict()
             for group in group_list:
-                if group not in supplied_mask_pos_dict[species]:
-                    supplied_mask_pos_dict[species][group] = dict()
-                # Open the maskfile
+                if group not in supplied_mask_pos_dict['species']:
+                    supplied_mask_pos_dict['species'][group] = dict()
+                # Open the mask file
                 with open(maskfile, 'r') as mask:
                     for line in mask:
                         # Split the line on tabs
                         # e.g. Contig_13_99.0332	49320	49360
                         chrom, chrom_start, chrom_end = line.rstrip().split('\t')
                         # Initialise the reference chromosome in the dictionary if necessary
-                        if chrom not in supplied_mask_pos_dict[species][group]:
-                            supplied_mask_pos_dict[species][group][chrom] = set()
+                        if chrom not in supplied_mask_pos_dict['species'][group]:
+                            supplied_mask_pos_dict['species'][group][chrom] = set()
                         # Add the range of the masked region to the set
                         for i in range(int(chrom_start), int(chrom_end) + 1):
-                            supplied_mask_pos_dict[species][group][chrom].add(i)
+                            supplied_mask_pos_dict['species'][group][chrom].add(i)
         return supplied_mask_pos_dict
 
     @staticmethod
