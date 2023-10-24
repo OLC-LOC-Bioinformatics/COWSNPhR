@@ -329,6 +329,8 @@ def test_load_supplied_mask():
             strain_groups=strain_groups,
             maskfile=os.path.join(dependency_path, 'brucella/suis1/script_dependents/maskfile.bed')
         )
+    print('\n')
+    print(supplied_mask_pos_dict)
     assert 43351 in supplied_mask_pos_dict['species']['group']['NC_017250.1']
     assert 43355 not in supplied_mask_pos_dict['group']['group']['NC_017250.1']
 
