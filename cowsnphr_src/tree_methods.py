@@ -1470,7 +1470,7 @@ class TreeMethods(object):
             ref_path = os.path.dirname(ref_fasta)
             ref_strain = os.path.splitext(os.path.basename(ref_fasta))[0]
             gbk_file = ref_fasta.replace('.fasta', '.gbk')
-            cmd = 'prokka --force --outdir {output_folder} --prefix {prefix} {ref_file}' \
+            cmd = 'prokka --force --compliant --outdir {output_folder} --prefix {prefix} {ref_file}' \
                 .format(output_folder=ref_path,
                         prefix=ref_strain,
                         ref_file=ref_fasta)
@@ -1784,102 +1784,102 @@ class TreeMethods(object):
                     translated_snp_residue_dict[species][group] = dict()
                     ref_translated_snp_residue_dict[species][group] = dict()
                 for strain_name, ref_dict in strain_dict.items():
-                    if strain_name != best_ref:
-                        # Add the strain_name to the nested dictionary
-                        if strain_name not in translated_snp_residue_dict[species][group]:
-                            translated_snp_residue_dict[species][group][strain_name] = dict()
-                        for ref_chrom in ref_dict:
-                            # Initialise the ref_chrom key in the dictionary as required
-                            if ref_chrom not in translated_snp_residue_dict[species][group][strain_name]:
-                                translated_snp_residue_dict[species][group][strain_name][ref_chrom] = dict()
-                                ref_translated_snp_residue_dict[species][group][ref_chrom] = dict()
-                                # Iterate through all the SNP positions found in the group
-                                for pos in species_group_snp_num_dict[species][group][ref_chrom]:
-                                    # Extract the SNP sequence from the ref_dict
-                                    try:
-                                        snp_seq = ref_dict[ref_chrom][pos]
-                                    # If the strain does not have an entry at that position, it matches the reference
-                                    # sequence
-                                    except KeyError:
-                                        snp_seq = strain_dict[best_ref][ref_chrom][pos]
-                                    # Extract the location of the coding sequence from the reference chromosome
-                                    # containing the SNP position
-                                    location = \
-                                        species_group_annotated_snps_dict[species][group][ref_chrom][pos]['location']
-                                    # rRNA products are not coding
-                                    product = \
-                                        species_group_annotated_snps_dict[species][group][ref_chrom][pos]['product']
-                                    # 'None' locations and rRNA products do not correspond to coding regions.
-                                    # Deletions do not have a corresponding amino acid sequence
-                                    if location != 'None' and 'ribosomal RNA' not in product and snp_seq != '-':
-                                        # Extract the coding sequence of reference genome containing the SNP position
-                                        ref_nt_seq = ref_records[ref_chrom].seq[location.start:location.end]
-                                        # If the SNP is a degenerate base, parse the 'ALT' entry from the gVCF file
-                                        if snp_seq in iupac:
-                                            # The 'ALT' entry contains the alternate base, and the reference: C,<*>
-                                            alt_dict = strain_parsed_vcf_dict[strain_name][ref_chrom][pos]['ALT']
-                                            # Split the entry on the comma, and update the snp_seq variable with
-                                            # the alternate base from C,<*>
-                                            snp_seq = alt_dict.split(',')[0]
-                                        # Create a variable to store the raw SNP sequence
-                                        alt_seq = snp_seq
-                                        # If the coding sequence containing the SNP position is on the positive strand,
-                                        # the location of the SNP is calculated by subtracting the defined start pos
-                                        # of the coding sequence (+1 due to 0-based indexing) from the global SNP pos
-                                        if location.strand == 1:
-                                            # e.g. 49340 (pos) - 48999 (location.start) + 1 = 342 (snp_loc)
-                                            '''
-                                            CDS 49000..49497
-                                            /locus_tag="PELMLHNL_01252"
-                                            '''
-                                            snp_loc = pos - location.start + 1
-                                        # If the coding sequence containing the SNP position is on the negative strand,
-                                        # the location of the SNP is calculated by subtracting the global SNP position
-                                        # from the end of the defined end position of the coding sequence (don't need
-                                        # to worry about 0-based indexing)
-                                        else:
-                                            # The reference sequence is treated as the reverse complement
-                                            ref_nt_seq = ref_nt_seq.reverse_complement()
-                                            # e.g. 3216 (location.end) - 2118 (pos) = 1098 (snp_loc)
-                                            '''
-                                            CDS complement(1285..3216)
-                                            /gene="ccmF_1"
-                                            '''
-                                            snp_loc = location.end - pos
-                                            # Convert the snp sequence to be the reverse complement
-                                            snp_seq = Seq(snp_seq)
-                                            snp_seq = str(snp_seq.reverse_complement())
-                                        # Strings are not mutable, so convert the coding sequence to a list in
-                                        # anticipation of modifying the sequence at the SNP position
-                                        snp_nt_seq = list(ref_nt_seq)
-                                        # Update the list at the SNP index with the new sequence: e.g. at position 342,
-                                        # the base 'T' is substituted with a 'G'
-                                        snp_nt_seq[snp_loc] = snp_seq
-                                        # Convert the list to be a Biopython Seq object
-                                        snp_nt_seq = Seq(''.join(snp_nt_seq))
-                                        # Determine the position of the amino acid residue within the translated
-                                        # sequence by dividing the location in the nucleic acid sequence by three and
-                                        # rounding down e.g. 342 (snp_loc) / 3 = 114
-                                        aa_loc = math.floor(snp_loc / 3)
-                                        # Populate the dictionary with all the necessary data
-                                        translated_snp_residue_dict[species][group][strain_name][ref_chrom][pos] = {
-                                            'snp_nt_seq_raw': snp_seq,
-                                            'snp_nt_seq_alt': alt_seq,
-                                            'snp_nt_seq_cds': snp_nt_seq[snp_loc],
-                                            'snp_aa_seq_cds': str(snp_nt_seq.translate())[aa_loc],
-                                            'ref_nt_seq_raw': ref_records[ref_chrom].seq[location.start:location.end]
-                                            [snp_loc],
-                                            'ref_nt_seq_cds': ref_nt_seq[snp_loc],
-                                            'ref_aa_seq_cds': str(ref_nt_seq.translate())[aa_loc],
-                                            'cds_strand': location.strand
-                                        }
-                                        ref_translated_snp_residue_dict[species][group][ref_chrom][pos] = {
-                                            'ref_nt_seq_raw': ref_records[ref_chrom].seq[location.start:location.end]
-                                            [snp_loc],
-                                            'ref_nt_seq_cds': ref_nt_seq[snp_loc],
-                                            'ref_aa_seq_cds': str(ref_nt_seq.translate())[aa_loc],
-                                            'cds_strand': location.strand
-                                        }
+                    # if strain_name != best_ref:
+                    # Add the strain_name to the nested dictionary
+                    if strain_name not in translated_snp_residue_dict[species][group]:
+                        translated_snp_residue_dict[species][group][strain_name] = dict()
+                    for ref_chrom in ref_dict:
+                        # Initialise the ref_chrom key in the dictionary as required
+                        if ref_chrom not in translated_snp_residue_dict[species][group][strain_name]:
+                            translated_snp_residue_dict[species][group][strain_name][ref_chrom] = dict()
+                            ref_translated_snp_residue_dict[species][group][ref_chrom] = dict()
+                            # Iterate through all the SNP positions found in the group
+                            for pos in species_group_snp_num_dict[species][group][ref_chrom]:
+                                # Extract the SNP sequence from the ref_dict
+                                try:
+                                    snp_seq = ref_dict[ref_chrom][pos]
+                                # If the strain does not have an entry at that position, it matches the reference
+                                # sequence
+                                except KeyError:
+                                    snp_seq = strain_dict[best_ref][ref_chrom][pos]
+                                # Extract the location of the coding sequence from the reference chromosome
+                                # containing the SNP position
+                                location = \
+                                    species_group_annotated_snps_dict[species][group][ref_chrom][pos]['location']
+                                # rRNA products are not coding
+                                product = \
+                                    species_group_annotated_snps_dict[species][group][ref_chrom][pos]['product']
+                                # 'None' locations and rRNA products do not correspond to coding regions.
+                                # Deletions do not have a corresponding amino acid sequence
+                                if location != 'None' and 'ribosomal RNA' not in product and snp_seq != '-':
+                                    # Extract the coding sequence of reference genome containing the SNP position
+                                    ref_nt_seq = ref_records[ref_chrom].seq[location.start:location.end]
+                                    # If the SNP is a degenerate base, parse the 'ALT' entry from the gVCF file
+                                    if snp_seq in iupac:
+                                        # The 'ALT' entry contains the alternate base, and the reference: C,<*>
+                                        alt_dict = strain_parsed_vcf_dict[strain_name][ref_chrom][pos]['ALT']
+                                        # Split the entry on the comma, and update the snp_seq variable with
+                                        # the alternate base from C,<*>
+                                        snp_seq = alt_dict.split(',')[0]
+                                    # Create a variable to store the raw SNP sequence
+                                    alt_seq = snp_seq
+                                    # If the coding sequence containing the SNP position is on the positive strand,
+                                    # the location of the SNP is calculated by subtracting the defined start pos
+                                    # of the coding sequence (+1 due to 0-based indexing) from the global SNP pos
+                                    if location.strand == 1:
+                                        # e.g. 49340 (pos) - 48999 (location.start) + 1 = 342 (snp_loc)
+                                        '''
+                                        CDS 49000..49497
+                                        /locus_tag="PELMLHNL_01252"
+                                        '''
+                                        snp_loc = pos - location.start + 1
+                                    # If the coding sequence containing the SNP position is on the negative strand,
+                                    # the location of the SNP is calculated by subtracting the global SNP position
+                                    # from the end of the defined end position of the coding sequence (don't need
+                                    # to worry about 0-based indexing)
+                                    else:
+                                        # The reference sequence is treated as the reverse complement
+                                        ref_nt_seq = ref_nt_seq.reverse_complement()
+                                        # e.g. 3216 (location.end) - 2118 (pos) = 1098 (snp_loc)
+                                        '''
+                                        CDS complement(1285..3216)
+                                        /gene="ccmF_1"
+                                        '''
+                                        snp_loc = location.end - pos
+                                        # Convert the snp sequence to be the reverse complement
+                                        snp_seq = Seq(snp_seq)
+                                        snp_seq = str(snp_seq.reverse_complement())
+                                    # Strings are not mutable, so convert the coding sequence to a list in
+                                    # anticipation of modifying the sequence at the SNP position
+                                    snp_nt_seq = list(ref_nt_seq)
+                                    # Update the list at the SNP index with the new sequence: e.g. at position 342,
+                                    # the base 'T' is substituted with a 'G'
+                                    snp_nt_seq[snp_loc] = snp_seq
+                                    # Convert the list to be a Biopython Seq object
+                                    snp_nt_seq = Seq(''.join(snp_nt_seq))
+                                    # Determine the position of the amino acid residue within the translated
+                                    # sequence by dividing the location in the nucleic acid sequence by three and
+                                    # rounding down e.g. 342 (snp_loc) / 3 = 114
+                                    aa_loc = math.floor(snp_loc / 3)
+                                    # Populate the dictionary with all the necessary data
+                                    translated_snp_residue_dict[species][group][strain_name][ref_chrom][pos] = {
+                                        'snp_nt_seq_raw': snp_seq,
+                                        'snp_nt_seq_alt': alt_seq,
+                                        'snp_nt_seq_cds': snp_nt_seq[snp_loc],
+                                        'snp_aa_seq_cds': str(snp_nt_seq.translate())[aa_loc],
+                                        'ref_nt_seq_raw': ref_records[ref_chrom].seq[location.start:location.end]
+                                        [snp_loc],
+                                        'ref_nt_seq_cds': ref_nt_seq[snp_loc],
+                                        'ref_aa_seq_cds': str(ref_nt_seq.translate())[aa_loc],
+                                        'cds_strand': location.strand
+                                    }
+                                    ref_translated_snp_residue_dict[species][group][ref_chrom][pos] = {
+                                        'ref_nt_seq_raw': ref_records[ref_chrom].seq[location.start:location.end]
+                                        [snp_loc],
+                                        'ref_nt_seq_cds': ref_nt_seq[snp_loc],
+                                        'ref_aa_seq_cds': str(ref_nt_seq.translate())[aa_loc],
+                                        'cds_strand': location.strand
+                                    }
         return translated_snp_residue_dict, ref_translated_snp_residue_dict
 
     @staticmethod
@@ -2166,7 +2166,7 @@ class TreeMethods(object):
                         # Set the width of the first column to be the longest of the following items: 1) the length
                         # of the longest strain name, 2) the length of the consolidated reference, 3) length of the word
                         # 'Annotation'; the longest hardcoded string in the column
-                        strain_length = max([len(consolidated_ref), len(max(strain_dict)), 10])
+                        strain_length = max([len(consolidated_ref + ' (ref)'), len(max(strain_dict)), 10])
                         ws.set_column(first_col=0,
                                       last_col=0,
                                       width=strain_length)
@@ -2184,7 +2184,7 @@ class TreeMethods(object):
                         # Add the name of the consolidated reference sequence to the 'Strain' column
                         ws.write_string(row=row,
                                         col=0,
-                                        string=consolidated_ref,
+                                        string=consolidated_ref + ' (ref)',
                                         cell_format=courier)
                         # Iterate through the sorted SNPs, and write the reference sequence for each position
                         for i, pos in enumerate(snp_order):
@@ -2223,43 +2223,43 @@ class TreeMethods(object):
                             except KeyError:
                                 sequence_dict = strain_dict[consolidated_ref][ref_chrom]
                             # Don't need to look at the reference genome when finding SNPs
-                            if strain_name != consolidated_ref:
-                                # Write the strain name in the 'Strain' column
+                            # if strain_name != consolidated_ref:
+                            # Write the strain name in the 'Strain' column
+                            ws.write_string(row=row,
+                                            col=0,
+                                            string=strain_name,
+                                            cell_format=courier)
+                            for i, pos in enumerate(snp_order):
+                                if molecule == 'nt':
+                                    # Determine the sequence of the nucleotide at the current position, and any
+                                    # special formatting required
+                                    sequence, base_format = TreeMethods.format_sequence(
+                                        pos=pos,
+                                        sequence_dict=sequence_dict,
+                                        ref_dict=ref_dict,
+                                        bold_courier=bold_courier,
+                                        format_dict=format_dict,
+                                        ambiguous_format=ambiguous_format,
+                                        molecule=molecule)
+                                # For amino acid reports, use the translated_snp_residue_dict instead
+                                else:
+                                    sequence_dict = \
+                                        translated_snp_residue_dict[species][group][strain_name][ref_chrom]
+                                    sequence, base_format = TreeMethods.format_sequence(
+                                        pos=pos,
+                                        sequence_dict=sequence_dict,
+                                        ref_dict=ref_dict,
+                                        bold_courier=bold_courier,
+                                        format_dict=format_dict,
+                                        ambiguous_format=ambiguous_format,
+                                        molecule=molecule)
+                                # Write the sequence in the appropriate format
                                 ws.write_string(row=row,
-                                                col=0,
-                                                string=strain_name,
-                                                cell_format=courier)
-                                for i, pos in enumerate(snp_order):
-                                    if molecule == 'nt':
-                                        # Determine the sequence of the nucleotide at the current position, and any
-                                        # special formatting required
-                                        sequence, base_format = TreeMethods.format_sequence(
-                                            pos=pos,
-                                            sequence_dict=sequence_dict,
-                                            ref_dict=ref_dict,
-                                            bold_courier=bold_courier,
-                                            format_dict=format_dict,
-                                            ambiguous_format=ambiguous_format,
-                                            molecule=molecule)
-                                    # For amino acid reports, use the translated_snp_residue_dict instead
-                                    else:
-                                        sequence_dict = \
-                                            translated_snp_residue_dict[species][group][strain_name][ref_chrom]
-                                        sequence, base_format = TreeMethods.format_sequence(
-                                            pos=pos,
-                                            sequence_dict=sequence_dict,
-                                            ref_dict=ref_dict,
-                                            bold_courier=bold_courier,
-                                            format_dict=format_dict,
-                                            ambiguous_format=ambiguous_format,
-                                            molecule=molecule)
-                                    # Write the sequence in the appropriate format
-                                    ws.write_string(row=row,
-                                                    col=current_col + i + 1,
-                                                    string=sequence,
-                                                    cell_format=base_format)
-                                # Increment the row for each sequence
-                                row += 1
+                                                col=current_col + i + 1,
+                                                string=sequence,
+                                                cell_format=base_format)
+                            # Increment the row for each sequence
+                            row += 1
 
                         # Add the string 'Annotation' to the 'Strain' column
                         ws.write_string(row=row,
