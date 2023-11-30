@@ -128,11 +128,14 @@ class COWSNPhR(object):
         reference_strain_dict: Dictionary of strain name: absolute path to symlinked reference genome
         """
         self.ref_fasta = glob(os.path.join(self.ref_path, '*.fasta'))[0]
+        # Check that contig names aren't going to cause issues with downstream processing
+        VCFMethods.edit_contig_names(ref_file=self.ref_fasta)
         self.ref_strain = os.path.basename(os.path.splitext(self.ref_fasta)[0])
         for strain_name in self.strain_name_dict:
             self.reference_strain_dict[strain_name] = self.ref_fasta
             self.strain_consolidated_ref_dict[strain_name] = self.ref_strain
             self.reference_strain_dict[self.ref_strain] = self.ref_fasta
+
 
     def snp_calling(self):
         """

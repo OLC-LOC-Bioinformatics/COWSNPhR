@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from olctools.accessoryFunctions.accessoryFunctions import filer, make_path, relative_symlink, run_subprocess, \
     write_to_logfile
+from Bio import SeqIO
 import multiprocessing
 from glob import glob
 import shutil
@@ -94,6 +95,35 @@ class VCFMethods(object):
                 except KeyError:
                     strain_fastq_dict[strain_name] = [symlink_path]
         return strain_fastq_dict
+
+
+    @staticmethod
+    def edit_contig_names(ref_file: str):
+        """
+        Edit the contig names to be a maximum of 20 characters in order to be able to be processed by tbl2asn
+        :param str ref_file: Name and path of reference FASTA-formatted file
+        """
+        # Create a list to store all the renamed headers
+        headers = []
+        # Use BioPython to open the reference file
+        for contig in SeqIO.parse(ref_file, 'fasta'):
+            # Check to see if the header length is greater than 20 characters
+            if len(contig.id) <= 20:
+                headers.append(contig)
+                continue
+            else:
+                # Split the header on underscores
+                split_header = contig.id.split('_')
+                # Join the first two portions of the header. This assumes that the headers look like this:
+                # >2023-SEQ-0755_2_84.3169
+                compliant_header = '_'.join([split_header[0], split_header[1]])
+                # Update the contig attributes to contain the compliant header information
+                contig.id = compliant_header
+                contig.name = compliant_header
+                contig.description = compliant_header
+                headers.append(contig)
+        # Overwrite the original reference file
+        SeqIO.write(headers, ref_file, 'fasta')
 
     @staticmethod
     def run_reformat_reads(
