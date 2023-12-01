@@ -1267,28 +1267,28 @@ class TreeMethods(object):
                                     sequence_string = str()
                                     for strain_name, chrom_dict in sorted(strain_dict.items()):
                                         # Don't process the reference strain
-                                        if strain_name != best_ref:
-                                            # Add the strain name to the list of all strains
-                                            if strain_name not in strain_names:
-                                                strain_names.append(strain_name)
+                                        # if strain_name != best_ref:
+                                        # Add the strain name to the list of all strains
+                                        if strain_name not in strain_names:
+                                            strain_names.append(strain_name)
+                                        try:
+                                            sequence = chrom_dict[ref_chrom][pos]
+                                            # Append each base to the string
+                                            sequence_string += '{seq}\t'.format(seq=sequence)
+                                        except KeyError:
+                                            # If the position isn't in chrom_dict, it is either because it is
+                                            # identical to the reference, or it was deleted
                                             try:
-                                                sequence = chrom_dict[ref_chrom][pos]
-                                                # Append each base to the string
-                                                sequence_string += '{seq}\t'.format(seq=sequence)
-                                            except KeyError:
-                                                # If the position isn't in chrom_dict, it is either because it is
-                                                # identical to the reference, or it was deleted
-                                                try:
-                                                    # If it was deleted, add a -, otherwise, use the reference base
-                                                    sequence_dict = strain_parsed_vcf_dict[strain_name][ref_chrom][pos]
-                                                    if sequence_dict['FILTER'] == 'DELETION':
-                                                        sequence_string += '-\t'
-                                                    else:
-                                                        sequence_string += '{seq}\t'\
-                                                            .format(seq=ref_seq)
-                                                except KeyError:
-                                                    sequence_string += '{seq}\t' \
+                                                # If it was deleted, add a -, otherwise, use the reference base
+                                                sequence_dict = strain_parsed_vcf_dict[strain_name][ref_chrom][pos]
+                                                if sequence_dict['FILTER'] == 'DELETION':
+                                                    sequence_string += '-\t'
+                                                else:
+                                                    sequence_string += '{seq}\t'\
                                                         .format(seq=ref_seq)
+                                            except KeyError:
+                                                sequence_string += '{seq}\t' \
+                                                    .format(seq=ref_seq)
                                     snp_summary_body += '{pos}\t{validity}\t{ref_seq}\t{seq_string}\n'\
                                         .format(pos=pos,
                                                 validity=validity,
@@ -1470,7 +1470,7 @@ class TreeMethods(object):
             ref_path = os.path.dirname(ref_fasta)
             ref_strain = os.path.splitext(os.path.basename(ref_fasta))[0]
             gbk_file = ref_fasta.replace('.fasta', '.gbk')
-            cmd = 'prokka --force --compliant --outdir {output_folder} --prefix {prefix} {ref_file}' \
+            cmd = 'prokka --force --outdir {output_folder} --prefix {prefix} {ref_file}' \
                 .format(output_folder=ref_path,
                         prefix=ref_strain,
                         ref_file=ref_fasta)
@@ -1732,20 +1732,20 @@ class TreeMethods(object):
                 best_ref_dict = strain_dict[best_ref]
                 for strain_name, ref_dict in sorted(strain_dict.items()):
                     # The reference genome should not be considered when counting SNP positions
-                    if strain_name != best_ref:
-                        for ref_chrom, sequence_dict in ref_dict.items():
-                            if ref_chrom not in species_group_snp_num_dict[species][group]:
-                                species_group_snp_num_dict[species][group][ref_chrom] = dict()
-                            for pos, sequence in sequence_dict.items():
-                                # If the base at the current position is not the same as the reference genome
-                                # (strain_dict[best_ref][ref_chrom][pos]), the position is a SNP
-                                if sequence != best_ref_dict[ref_chrom][pos]:
-                                    # Initialise the number of SNPs at a position to 1
-                                    if pos not in species_group_snp_num_dict[species][group][ref_chrom]:
-                                        species_group_snp_num_dict[species][group][ref_chrom][pos] = 1
-                                    # Otherwise increment the number of SNPs observed at the position
-                                    else:
-                                        species_group_snp_num_dict[species][group][ref_chrom][pos] += 1
+                    # if strain_name != best_ref:
+                    for ref_chrom, sequence_dict in ref_dict.items():
+                        if ref_chrom not in species_group_snp_num_dict[species][group]:
+                            species_group_snp_num_dict[species][group][ref_chrom] = dict()
+                        for pos, sequence in sequence_dict.items():
+                            # If the base at the current position is not the same as the reference genome
+                            # (strain_dict[best_ref][ref_chrom][pos]), the position is a SNP
+                            if sequence != best_ref_dict[ref_chrom][pos]:
+                                # Initialise the number of SNPs at a position to 1
+                                if pos not in species_group_snp_num_dict[species][group][ref_chrom]:
+                                    species_group_snp_num_dict[species][group][ref_chrom][pos] = 1
+                                # Otherwise increment the number of SNPs observed at the position
+                                else:
+                                    species_group_snp_num_dict[species][group][ref_chrom][pos] += 1
         return species_group_snp_num_dict
 
     @staticmethod
@@ -1832,7 +1832,8 @@ class TreeMethods(object):
                                         CDS 49000..49497
                                         /locus_tag="PELMLHNL_01252"
                                         '''
-                                        snp_loc = pos - location.start + 1
+                                        # + 1
+                                        snp_loc = pos - location.start
                                     # If the coding sequence containing the SNP position is on the negative strand,
                                     # the location of the SNP is calculated by subtracting the global SNP position
                                     # from the end of the defined end position of the coding sequence (don't need
@@ -1854,7 +1855,6 @@ class TreeMethods(object):
                                     snp_nt_seq = list(ref_nt_seq)
                                     # Update the list at the SNP index with the new sequence: e.g. at position 342,
                                     # the base 'T' is substituted with a 'G'
-                                    snp_nt_seq[snp_loc] = snp_seq
                                     # Convert the list to be a Biopython Seq object
                                     snp_nt_seq = Seq(''.join(snp_nt_seq))
                                     # Determine the position of the amino acid residue within the translated
@@ -2040,23 +2040,23 @@ class TreeMethods(object):
                         species_group_sorted_snps[species][group][num_snps] = dict()
                     for strain_name in ordered_strain_list:
                         # Don't need to look at the reference genome when finding SNPs
-                        if strain_name != best_ref:
-                            for ref_chrom, pos_list in ref_dict.items():
-                                if ref_chrom not in species_group_sorted_snps[species][group][num_snps]:
-                                    species_group_sorted_snps[species][group][num_snps][ref_chrom] = list()
-                                for pos in pos_list:
-                                    try:
-                                        sequence = \
-                                            group_strain_snp_sequence[species][group][strain_name][ref_chrom][pos]
-                                        ref_seq = group_strain_snp_sequence[species][group][best_ref][ref_chrom][pos]
-                                        if sequence != ref_seq and pos not in \
-                                                species_group_sorted_snps[species][group][num_snps][ref_chrom]:
-                                            # Add the position to the list
-                                            species_group_sorted_snps[species][group][num_snps][ref_chrom].append(pos)
-                                    # If the position is not present in group_strain_snp_sequence, it is because
-                                    # the strain does not have a SNP at that position
-                                    except KeyError:
-                                        pass
+                        # if strain_name != best_ref:
+                        for ref_chrom, pos_list in ref_dict.items():
+                            if ref_chrom not in species_group_sorted_snps[species][group][num_snps]:
+                                species_group_sorted_snps[species][group][num_snps][ref_chrom] = list()
+                            for pos in pos_list:
+                                try:
+                                    sequence = \
+                                        group_strain_snp_sequence[species][group][strain_name][ref_chrom][pos]
+                                    ref_seq = group_strain_snp_sequence[species][group][best_ref][ref_chrom][pos]
+                                    if sequence != ref_seq and pos not in \
+                                            species_group_sorted_snps[species][group][num_snps][ref_chrom]:
+                                        # Add the position to the list
+                                        species_group_sorted_snps[species][group][num_snps][ref_chrom].append(pos)
+                                # If the position is not present in group_strain_snp_sequence, it is because
+                                # the strain does not have a SNP at that position
+                                except KeyError:
+                                    pass
 
         for species, group_dict in species_group_sorted_snps.items():
             for group, num_dict in group_dict.items():
