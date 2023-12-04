@@ -1895,6 +1895,8 @@ class TreeMethods(object):
         make_path(matrix_path)
         # Initialise a dictionary to store the pairwise SNPs between all the strains
         snp_matrix = dict()
+        # Initialise a set to track all SNV positions
+        positions = dict()
         for species, group_dict in group_strain_snp_sequence.items():
             for group, strain_dict in group_dict.items():
                 # Extract the name of the reference strain
@@ -1904,21 +1906,29 @@ class TreeMethods(object):
                 for compare_strain in group_strain_snp_sequence[species][group]:
                     # Initialise the SNP dictionary with the target name
                     snp_matrix[compare_strain] = dict()
+                    if compare_strain not in positions:
+                        positions[compare_strain] = dict()
                     # The target strain will not have any SNPs against itself, but this needs to be recorded for
                     # creating the square matrix file
                     snp_matrix[compare_strain][compare_strain] = 0
                     # Iterate through the dictionary again to get the query strain
                     for strain_name, ref_dict in group_strain_snp_sequence[species][group].items():
-                        # Query strain must be different than target strain
+                        # Query strain must be different from the target strain
                         if strain_name != compare_strain:
                             # Initialise the keys in the snp_matrix dictionary as required
                             if strain_name not in snp_matrix[compare_strain]:
                                 snp_matrix[compare_strain].update({strain_name: 0})
+                            if strain_name not in positions[compare_strain]:
+                                positions[compare_strain][strain_name] = dict()
                             # Iterate through the reference chromosomes, and position dictionaries nested in the
                             # reference dictionary
                             for ref_chrom, pos_dict in ref_dict.items():
+                                if ref_chrom not in positions[compare_strain][strain_name]:
+                                    positions[compare_strain][strain_name][ref_chrom] = dict()
                                 # Extract the position and sequence at that position on the reference chromosome
                                 for pos, seq in pos_dict.items():
+                                    # Add the position to the dictionary
+                                    positions[compare_strain][strain_name][ref_chrom][pos] = seq
                                     # Determine the sequence of the target strain at this position
                                     try:
                                         # If this position is in the dictionary, extract the sequence from the
@@ -1933,6 +1943,19 @@ class TreeMethods(object):
                                     # If the target and query sequences do not match, increment the snp_matrix counter
                                     if seq != compare_seq:
                                         snp_matrix[compare_strain][strain_name] += 1
+                # Determine which positions are missing from certain strain combinations
+                for compare_strain, strain_name_dict in positions.items():
+                    for strain_name, ref_chrom_dict in strain_name_dict.items():
+                        for ref_chrom, pos_dict in ref_chrom_dict.items():
+                            for pos, seq in pos_dict.items():
+                                # Ignore this position if it is in the dictionary of positions for the "other" strain
+                                if pos in positions[strain_name][compare_strain][ref_chrom]:
+                                    continue
+                                # Extract the reference sequence for this position
+                                ref_seq = group_strain_snp_sequence[species][group][consolidated_ref][ref_chrom][pos]
+                                # Only increment the count if this position is different than the reference sequence
+                                if seq != ref_seq:
+                                    snp_matrix[strain_name][compare_strain] += 1
                 # Write the snp_matrix dictionary to a .csv file
                 with open(os.path.join(matrix_path, 'snv_matrix.tsv'), 'w') as matrix_file:
                     # Initialise variables to store the header, and body strings
